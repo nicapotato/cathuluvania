@@ -975,6 +975,9 @@ static void game_draw_debug_collision(const Game *g, float view_w, float view_h)
         }
     }
 
+}
+
+static void game_draw_debug_player_collision(const Game *g) {
     float pl, pt, pr, pb;
     get_player_aabb(g->player.pos.x, g->player.pos.y, &pl, &pt, &pr, &pb);
     DrawRectangleLinesEx((Rectangle){ pl, pt, pr - pl, pb - pt }, 1.0f, RED);
@@ -1176,6 +1179,9 @@ static void game_draw_world(Game *g) {
     float pl = g->player.pos.x - PLAYER_HALF;
     float pt = g->player.pos.y - PLAYER_HALF;
     DrawRectangle((int)pl, (int)pt, (int)PLAYER_SIZE, (int)PLAYER_SIZE, RED);
+
+    if (g->debug_mode)
+        game_draw_debug_player_collision(g);
     EndMode2D();
 
     if (g->transition_alpha > 0.0f) {

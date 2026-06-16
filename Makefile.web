@@ -2,7 +2,7 @@
 
 PROJECT_NAME = cathuluvania
 
-RAYLIB_ROOT = build/external/raylib-master
+RAYLIB_ROOT = external/raylib-master
 RAYLIB_SRC = $(RAYLIB_ROOT)/src
 SRC_DIR = src
 BUILD_DIR = bin/wasm
@@ -26,7 +26,11 @@ endif
 
 ACTS_GEN = $(SRC_DIR)/acts.gen.h
 
-.PHONY: all clean package assets
+.PHONY: all clean package assets vendor-raylib
+
+vendor-raylib:
+	@chmod +x scripts/vendor_raylib.sh
+	@./scripts/vendor_raylib.sh
 
 assets:
 	@$(MAKE) -f Makefile assets
@@ -45,7 +49,7 @@ package: all
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(RAYLIB_SRC)/libraylib.web.a:
+$(RAYLIB_SRC)/libraylib.web.a: vendor-raylib
 	@echo "Building Raylib for Web..."
 	cd $(RAYLIB_SRC) && $(MAKE) PLATFORM=PLATFORM_WEB
 

@@ -106,19 +106,12 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Setup Raylib
+      - name: Vendor raylib 6.0
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          echo "📥 Setting up Raylib..."
-          mkdir -p build/external
-          cd build/external
-          if [ ! -d "raylib-master" ]; then
-            echo "Cloning raylib from GitHub..."
-            git clone --depth 1 https://github.com/raysan5/raylib.git raylib-master
-          else
-            echo "Raylib already exists, skipping clone"
-          fi
-          echo "✅ Raylib setup complete"
+          set -euo pipefail
+          chmod +x scripts/vendor_raylib.sh
+          ./scripts/vendor_raylib.sh
 
       - name: Extract version
         id: version
@@ -249,9 +242,8 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euo pipefail
-          echo "🔨 Building macOS release (vendored raylib $(grep '^RAYLIB_TAG' Makefile | cut -d= -f2 | tr -d ' ') )..."
-          make vendor-raylib
-          make RAYLIB_VENDOR=1 config=release_arm64 all smoke
+          echo "🔨 Building macOS release (vendored raylib $(grep '^RAYLIB_VERSION_REQUIRED' Makefile | cut -d= -f2 | tr -d ' ') )..."
+          make config=release_arm64 all smoke
 
       - name: Headless smoke test
         working-directory: ${{ env.PROJECT_DIR }}
@@ -264,7 +256,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "📦 Creating .app bundle..."
-          make RAYLIB_VENDOR=1 config=release_arm64 app-bundle
+          make config=release_arm64 app-bundle
           make config=release_arm64 smoke-test-bundle
           file Cathuluvania.app/Contents/MacOS/Cathuluvania
           echo "📦 Packaging macOS build..."
@@ -372,7 +364,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
-          echo "🔨 Building Windows release (vendored raylib $(grep '^RAYLIB_TAG' Makefile | cut -d= -f2 | tr -d ' '))..."
+          echo "🔨 Building Windows release (vendored raylib $(grep '^RAYLIB_VERSION_REQUIRED' Makefile | cut -d= -f2 | tr -d ' '))..."
           mingw32-make itch-windows CC=gcc
           ls -la release/Cathuluvania.exe release/resources/
 

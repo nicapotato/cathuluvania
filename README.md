@@ -59,18 +59,19 @@ Use `level_get_active_zone()` for the current combat room and `level_zone_at()` 
 
 ### Prerequisites
 
-- [raylib](https://www.raylib.com/) – `brew install raylib` (macOS) or equivalent
+- C compiler (clang/gcc)
 - [Aseprite](https://www.aseprite.org/) – for `make assets` (export + registry codegen)
-- Or: clone raylib into `./raylib` for a standalone build
+- **Network:** The first build clones [raylib 6.0](https://github.com/raysan5/raylib) into `external/raylib-master/` (ignored by git). Later builds reuse it.
 
 ### Commands
 
 ```bash
-make assets  # Export PNGs + regenerate src/acts.gen.h (requires aseprite on PATH)
-make         # Build → bin/Debug/Cathuluvania
-make run     # Build and run
-make clean   # Remove build artifacts
-make app-bundle  # macOS .app for distribution
+make vendor-raylib   # optional; `make` runs this automatically
+make assets          # Export PNGs + regenerate src/acts.gen.h (requires aseprite on PATH)
+make                 # Build → bin/Debug/Cathuluvania
+make run             # Build and run
+make clean           # Remove build artifacts
+make app-bundle      # macOS .app for distribution
 ```
 
 ### Windows (Zig)
@@ -81,7 +82,7 @@ build-zig.bat
 
 ### Web (Emscripten)
 
-Requires [Emscripten](https://emscripten.org/) (`emcc` on `PATH`).
+Requires [Emscripten](https://emscripten.org/) (`emcc` on `PATH`). Raylib is vendored into `external/raylib-master` on first build.
 
 ```bash
 make -f Makefile.web all
@@ -92,3 +93,8 @@ python3 -m http.server 8000 --directory bin/wasm
 ## CI/CD
 
 Cross-platform builds are in `.github/workflows/cathuluvania-cicd.yml` (web, macOS, Windows). Publishing to itch.io/S3 is disabled by default.
+
+## Structure
+
+- `external/raylib-master/` — raylib 6.0 sources (`make vendor-raylib` or any build target)
+- `scripts/vendor_raylib.sh` — clone/pin raylib 6.0 into `external/`

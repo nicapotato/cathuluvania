@@ -5,5 +5,7 @@ release/
 *.o
 *.exe
 raylib/
+external/raylib-master
 Cathuluvania.app/
 Debug
+.DS_Store

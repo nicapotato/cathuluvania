@@ -1,8 +1,9 @@
 # Cathuluvania - Cross-platform Makefile
-# Uses pkg-config when raylib is installed (e.g. brew install raylib)
-# Or clone raylib into ./raylib for standalone build
+# raylib 6.0 is vendored under external/raylib-master (gitignored).
 
 .SUFFIXES:
+
+.DEFAULT_GOAL := all
 
 .PHONY: all clean run help app-bundle run-app assets vendor-raylib itch-macos itch-windows package-windows smoke run-smoke smoke-test-bundle
 
@@ -76,57 +77,35 @@ EXPORT_SCRIPT = scripts/aesprite/export-act-level.lua
 REGISTRY_SCRIPT = scripts/aesprite/gen-acts-registry.lua
 ACTS_GEN = $(SRC_DIR)/acts.gen.h
 
-RAYLIB_TAG ?= 6.0
-RAYLIB_PKG := $(shell pkg-config --exists raylib 2>/dev/null && echo 1)
-RAYLIB_DIR := $(shell [ -d raylib/src ] && echo 1)
+RAYLIB_VERSION_REQUIRED = 6.0
+RAYLIB_ROOT = external/raylib-master
+RAYLIB_SRC = $(RAYLIB_ROOT)/src
+RAYLIB_LIB = $(RAYLIB_SRC)/libraylib.a
 
-# CI / distribution: static link vendored raylib (ignore brew pkg-config).
-ifeq ($(RAYLIB_VENDOR),1)
-  RAYLIB_SRC = raylib/src
-  CFLAGS += -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external -DPLATFORM_DESKTOP
-  LDFLAGS += -L$(RAYLIB_SRC) -lraylib
-  ifeq ($(UNAME_S),Darwin)
-    LDFLAGS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
-  else ifeq ($(IS_WINDOWS),1)
-    LDFLAGS += -lgdi32 -lwinmm -static
-    ifeq ($(WINDOWS_GUI),1)
-      CFLAGS += -mwindows
-    endif
-  else ifeq ($(UNAME_S),Linux)
-    LDFLAGS += -lGL -lm -lpthread -ldl -lrt
+CFLAGS += -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external -I$(RAYLIB_SRC)/external/glfw/include -DPLATFORM_DESKTOP
+LDFLAGS += -L$(RAYLIB_SRC) -lraylib
+ifeq ($(UNAME_S),Darwin)
+  LDFLAGS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+else ifeq ($(IS_WINDOWS),1)
+  LDFLAGS += -lgdi32 -lwinmm
+  ifeq ($(WINDOWS_GUI),1)
+    CFLAGS += -mwindows
   endif
-  BUILD_MODE = raylib-vendor
-else ifeq ($(RAYLIB_PKG),1)
-  CFLAGS += $(shell pkg-config --cflags raylib)
-  LDFLAGS += $(shell pkg-config --libs raylib)
-  BUILD_MODE = pkg-config
-else ifeq ($(RAYLIB_DIR),1)
-  RAYLIB_SRC = raylib/src
-  RAYLIB_SRCS = $(RAYLIB_SRC)/rcore.c $(RAYLIB_SRC)/rshapes.c $(RAYLIB_SRC)/rtext.c \
-                $(RAYLIB_SRC)/rtextures.c $(RAYLIB_SRC)/utils.c $(RAYLIB_SRC)/raudio.c
-  ifeq ($(UNAME_S),Darwin)
-    RAYLIB_SRCS += $(RAYLIB_SRC)/rglfw.c
-    CFLAGS += -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external/glfw/include -DPLATFORM_DESKTOP
-    LDFLAGS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
-  else ifeq ($(UNAME_S),Linux)
-    RAYLIB_SRCS += $(RAYLIB_SRC)/rglfw.c
-    CFLAGS += -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external/glfw/include -DPLATFORM_DESKTOP
-    LDFLAGS += -lGL -lm -lpthread -ldl -lrt
+  ifneq ($(findstring release,$(config)),)
+    LDFLAGS += -static
   endif
-  SRCS += $(RAYLIB_SRCS)
-  BUILD_MODE = raylib-source
-else
-  $(warning No raylib found. Install with: brew install raylib)
-  $(warning Or clone raylib into ./raylib: git clone --depth 1 https://github.com/raysan5/raylib.git)
-  CFLAGS += -I/usr/local/include
-  LDFLAGS += -lraylib
-  ifeq ($(UNAME_S),Darwin)
-    LDFLAGS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
-  else ifeq ($(UNAME_S),Linux)
-    LDFLAGS += -lGL -lm -lpthread -ldl -lrt
-  endif
-  BUILD_MODE = fallback
+else ifeq ($(UNAME_S),Linux)
+  LDFLAGS += -lGL -lm -lpthread -ldl -lrt
 endif
+BUILD_MODE = raylib-$(RAYLIB_VERSION_REQUIRED)
+
+vendor-raylib:
+	@chmod +x scripts/vendor_raylib.sh
+	@./scripts/vendor_raylib.sh
+
+$(RAYLIB_LIB): vendor-raylib
+	@rm -f $(RAYLIB_SRC)/libraylib.a $(RAYLIB_SRC)/libraylib.*.dylib $(RAYLIB_SRC)/libraylib.dylib
+	@$(RAYLIB_MAKE) -C $(RAYLIB_SRC) PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC -j4
 
 CFLAGS += -std=c99 -Wall -I$(SRC_DIR) -Iinclude $(CFLAGS_EXTRA)
 
@@ -155,7 +134,7 @@ $(ACTS_GEN): $(ACTS) $(EXPORT_SCRIPT) $(REGISTRY_SCRIPT) scripts/aesprite/lib/js
 all: $(EXECUTABLE)
 	@echo "Build complete: $(EXECUTABLE) ($(BUILD_MODE))"
 
-$(EXECUTABLE): $(SRCS) $(ACTS_GEN)
+$(EXECUTABLE): $(SRCS) $(ACTS_GEN) $(RAYLIB_LIB)
 	@mkdir -p $(dir $(EXECUTABLE))
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)
 
@@ -219,21 +198,13 @@ help:
 	@echo "  smoke        - Build headless smoke binary (CI resource validation)"
 	@echo "  run-smoke    - Run headless smoke test (no display required)"
 	@echo "  smoke-test-bundle - Validate .app layout + resources after packaging"
+	@echo "  vendor-raylib  - Clone raylib $(RAYLIB_VERSION_REQUIRED) into external/raylib-master"
 	@echo ""
-	@echo "Raylib: Use 'brew install raylib' or clone raylib into ./raylib"
-
-vendor-raylib:
-	@if [ ! -d raylib/src ]; then \
-		echo "Cloning raylib $(RAYLIB_TAG)..."; \
-		git clone --depth 1 --branch $(RAYLIB_TAG) https://github.com/raysan5/raylib.git; \
-	fi
-	@echo "Building libraylib.a (raylib $(RAYLIB_TAG))..."
-	@rm -f raylib/src/libraylib.a raylib/src/libraylib.*.dylib raylib/src/libraylib.dylib
-	@$(RAYLIB_MAKE) -C raylib/src PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC -j4
+	@echo "Raylib: vendored at external/raylib-master ($(RAYLIB_VERSION_REQUIRED))"
 
 # Release + static raylib + .app bundle (matches CI).
-itch-macos: vendor-raylib
-	@$(MAKE) --no-print-directory RAYLIB_VENDOR=1 config=release_arm64 all smoke app-bundle
+itch-macos:
+	@$(MAKE) --no-print-directory config=release_arm64 all smoke app-bundle
 	@echo "==== itch.io macOS bundle ready: $(APP_BUNDLE) ===="
 
 run-app: app-bundle
@@ -310,8 +281,8 @@ app-bundle:
 		echo "Warning: Signature verification failed (common for ad-hoc signing)"; \
 	fi
 	@echo "==== App bundle complete: $(APP_BUNDLE) ===="
-itch-windows: vendor-raylib
-	@$(MAKE) --no-print-directory RAYLIB_VENDOR=1 WINDOWS_GUI=1 config=release_x64 CC=gcc package-windows
+itch-windows:
+	@$(MAKE) --no-print-directory WINDOWS_GUI=1 config=release_x64 CC=gcc package-windows
 	@echo "==== itch.io Windows bundle ready: $(WIN_RELEASE_DIR)/ ===="
 
 # Runs inside nested make (config=release_x64) so $(EXECUTABLE) is bin/Release/*.exe.
