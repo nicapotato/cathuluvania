@@ -1,0 +1,324 @@
+# Platformer 2D - Cross-platform Makefile
+# Uses pkg-config when raylib is installed (e.g. brew install raylib)
+# Or clone raylib into ./raylib for standalone build
+
+.SUFFIXES:
+
+.PHONY: all clean run help app-bundle run-app assets vendor-raylib itch-macos itch-windows package-windows smoke run-smoke smoke-test-bundle
+
+APP_NAME = Platformer2D
+SMOKE_BIN = Platformer2D_smoke
+PRODUCT_NAME = Platformer2D
+BUNDLE_ID = io.itch.nicapotato.platformer-2d
+COPYRIGHT = (c) Platformer 2D
+PRODUCT_VERSION := $(shell grep '^VERSION=' project.conf 2>/dev/null | cut -d= -f2)
+ifeq ($(PRODUCT_VERSION),)
+  PRODUCT_VERSION := 0.0.0
+endif
+
+APP_BUNDLE = $(PRODUCT_NAME).app
+CONTENTS_DIR = $(APP_BUNDLE)/Contents
+MACOS_DIR = $(CONTENTS_DIR)/MacOS
+RESOURCES_DIR = $(CONTENTS_DIR)/Resources
+SRC_DIR = src
+BIN_DIR = bin
+BUILD_CONFIG = Debug
+
+UNAME_S := $(shell uname -s 2>/dev/null || echo Unknown)
+UNAME_M := $(shell uname -m 2>/dev/null || echo x86_64)
+
+ifeq ($(findstring MINGW,$(UNAME_S)),MINGW)
+  IS_WINDOWS = 1
+else ifeq ($(findstring MSYS,$(UNAME_S)),MSYS)
+  IS_WINDOWS = 1
+else ifeq ($(findstring CYGWIN,$(UNAME_S)),CYGWIN)
+  IS_WINDOWS = 1
+endif
+
+ifeq ($(IS_WINDOWS),1)
+  EXE_EXT = .exe
+  RAYLIB_MAKE ?= mingw32-make
+else
+  EXE_EXT =
+  RAYLIB_MAKE ?= make
+endif
+
+ifeq ($(UNAME_S),Darwin)
+  ifeq ($(UNAME_M),arm64)
+    config ?= debug_arm64
+  else
+    config ?= debug_x64
+  endif
+else ifeq ($(UNAME_S),Linux)
+  config ?= debug_x64
+else
+  config ?= debug_x64
+endif
+
+ifeq ($(findstring debug,$(config)),debug)
+  BUILD_CONFIG = Debug
+  CFLAGS_EXTRA = -g -O0
+else
+  BUILD_CONFIG = Release
+  CFLAGS_EXTRA = -O2 -DNDEBUG
+endif
+
+EXECUTABLE = $(BIN_DIR)/$(BUILD_CONFIG)/$(APP_NAME)$(EXE_EXT)
+SMOKE_EXECUTABLE = $(BIN_DIR)/$(BUILD_CONFIG)/$(SMOKE_BIN)$(EXE_EXT)
+SMOKE_SRCS = $(SRC_DIR)/smoke_main.c $(SRC_DIR)/platform_path.c
+WIN_RELEASE_DIR = release
+WIN_EXE = $(WIN_RELEASE_DIR)/$(APP_NAME).exe
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c
+
+ASEPRITE ?= $(shell if [ -x /Applications/Aseprite.app/Contents/MacOS/aseprite ]; then echo /Applications/Aseprite.app/Contents/MacOS/aseprite; else echo aseprite; fi)
+ACTS = resources/visual/green-act.aseprite resources/visual/dark-act.aseprite
+EXPORT_SCRIPT = scripts/aesprite/export-platformer-level.lua
+REGISTRY_SCRIPT = scripts/aesprite/gen-acts-registry.lua
+ACTS_GEN = $(SRC_DIR)/acts.gen.h
+
+RAYLIB_TAG ?= 6.0
+RAYLIB_PKG := $(shell pkg-config --exists raylib 2>/dev/null && echo 1)
+RAYLIB_DIR := $(shell [ -d raylib/src ] && echo 1)
+
+# CI / distribution: static link vendored raylib (ignore brew pkg-config).
+ifeq ($(RAYLIB_VENDOR),1)
+  RAYLIB_SRC = raylib/src
+  CFLAGS += -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external -DPLATFORM_DESKTOP
+  LDFLAGS += -L$(RAYLIB_SRC) -lraylib
+  ifeq ($(UNAME_S),Darwin)
+    LDFLAGS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+  else ifeq ($(IS_WINDOWS),1)
+    LDFLAGS += -lgdi32 -lwinmm -static
+    ifeq ($(WINDOWS_GUI),1)
+      CFLAGS += -mwindows
+    endif
+  else ifeq ($(UNAME_S),Linux)
+    LDFLAGS += -lGL -lm -lpthread -ldl -lrt
+  endif
+  BUILD_MODE = raylib-vendor
+else ifeq ($(RAYLIB_PKG),1)
+  CFLAGS += $(shell pkg-config --cflags raylib)
+  LDFLAGS += $(shell pkg-config --libs raylib)
+  BUILD_MODE = pkg-config
+else ifeq ($(RAYLIB_DIR),1)
+  RAYLIB_SRC = raylib/src
+  RAYLIB_SRCS = $(RAYLIB_SRC)/rcore.c $(RAYLIB_SRC)/rshapes.c $(RAYLIB_SRC)/rtext.c \
+                $(RAYLIB_SRC)/rtextures.c $(RAYLIB_SRC)/utils.c $(RAYLIB_SRC)/raudio.c
+  ifeq ($(UNAME_S),Darwin)
+    RAYLIB_SRCS += $(RAYLIB_SRC)/rglfw.c
+    CFLAGS += -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external/glfw/include -DPLATFORM_DESKTOP
+    LDFLAGS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+  else ifeq ($(UNAME_S),Linux)
+    RAYLIB_SRCS += $(RAYLIB_SRC)/rglfw.c
+    CFLAGS += -I$(RAYLIB_SRC) -I$(RAYLIB_SRC)/external/glfw/include -DPLATFORM_DESKTOP
+    LDFLAGS += -lGL -lm -lpthread -ldl -lrt
+  endif
+  SRCS += $(RAYLIB_SRCS)
+  BUILD_MODE = raylib-source
+else
+  $(warning No raylib found. Install with: brew install raylib)
+  $(warning Or clone raylib into ./raylib: git clone --depth 1 https://github.com/raysan5/raylib.git)
+  CFLAGS += -I/usr/local/include
+  LDFLAGS += -lraylib
+  ifeq ($(UNAME_S),Darwin)
+    LDFLAGS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+  else ifeq ($(UNAME_S),Linux)
+    LDFLAGS += -lGL -lm -lpthread -ldl -lrt
+  endif
+  BUILD_MODE = fallback
+endif
+
+CFLAGS += -std=c99 -Wall -I$(SRC_DIR) -Iinclude $(CFLAGS_EXTRA)
+
+# Aepsprite CLI Docs: https://www.aseprite.org/docs/cli/
+assets: $(ACTS_GEN)
+
+$(ACTS_GEN): $(ACTS) $(EXPORT_SCRIPT) $(REGISTRY_SCRIPT) scripts/aesprite/lib/json.lua scripts/aesprite/lib/slice_data.lua $(SRC_DIR)/acts_metadata.h
+	@set -e; \
+	for act in $(ACTS); do \
+	  echo "Exporting $$act..."; \
+	  $(ASEPRITE) -b "$$act" -script $(EXPORT_SCRIPT) || { \
+	    echo ""; \
+	    echo "ERROR: Aseprite export failed for $$act."; \
+	    echo "Open the .aseprite file in Aseprite, fix slice/layer issues listed above, then run: make assets"; \
+	    exit 1; \
+	  }; \
+	done; \
+	echo "Generating act registry..."; \
+	$(ASEPRITE) -b --script $(REGISTRY_SCRIPT) || { \
+	  echo ""; \
+	  echo "ERROR: Act registry generation failed."; \
+	  echo "Fix export validation errors first, or check src/acts_metadata.h matches exported acts."; \
+	  exit 1; \
+	}
+
+all: $(EXECUTABLE)
+	@echo "Build complete: $(EXECUTABLE) ($(BUILD_MODE))"
+
+$(EXECUTABLE): $(SRCS) $(ACTS_GEN)
+	@mkdir -p $(dir $(EXECUTABLE))
+	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)
+
+$(SMOKE_EXECUTABLE): $(SMOKE_SRCS) $(ACTS_GEN)
+	@mkdir -p $(dir $(SMOKE_EXECUTABLE))
+	$(CC) $(CFLAGS) -o $@ $(SMOKE_SRCS)
+
+smoke: $(SMOKE_EXECUTABLE)
+	@echo "Smoke binary ready: $(SMOKE_EXECUTABLE)"
+
+# Headless CI smoke test: validate act PNGs resolve from cwd (no GLFW/OpenGL).
+run-smoke: smoke
+	@echo "==== Running $(SMOKE_BIN) ===="
+	@if [ ! -f "$(SMOKE_EXECUTABLE)" ]; then \
+		echo "Error: Smoke binary not found at $(SMOKE_EXECUTABLE)"; \
+		exit 1; \
+	fi
+	@mkdir -p "$(dir $(SMOKE_EXECUTABLE))resources"
+	@rsync -a resources/ "$(dir $(SMOKE_EXECUTABLE))resources/"
+	@cd "$(dir $(SMOKE_EXECUTABLE))" && ./$(SMOKE_BIN)$(EXE_EXT)
+
+# Validate packaged .app: bundle layout, static link, and resource paths from MacOS/.
+smoke-test-bundle:
+	@echo "==== Smoke test: $(APP_BUNDLE) ===="
+	@test -d "$(APP_BUNDLE)/Contents/MacOS"
+	@test -f "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
+	@test -d "$(APP_BUNDLE)/Contents/Resources/resources"
+	@test -d "$(APP_BUNDLE)/Contents/MacOS/resources"
+	@file "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
+	@if otool -L "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)" 2>/dev/null | grep -qE 'libraylib|/opt/homebrew|/usr/local/lib|@rpath/libraylib'; then \
+		echo "Error: bundled binary is not statically linked"; \
+		exit 1; \
+	fi
+	@cp "$(SMOKE_EXECUTABLE)" "$(MACOS_DIR)/$(SMOKE_BIN)"
+	@"$(MACOS_DIR)/$(SMOKE_BIN)"
+	@rm -f "$(MACOS_DIR)/$(SMOKE_BIN)"
+	@echo "==== Bundle smoke test passed ===="
+
+run: $(EXECUTABLE)
+	@echo "Running $(APP_NAME)..."
+	@./$(EXECUTABLE)
+
+clean:
+	rm -rf $(BIN_DIR)
+	rm -rf "$(APP_BUNDLE)"
+	rm -rf "$(WIN_RELEASE_DIR)"
+
+help:
+	@echo "Platformer 2D - raylib platformer"
+	@echo ""
+	@echo "Targets:"
+	@echo "  all        - Build (default)"
+	@echo "  assets     - Export acts from Aseprite + regenerate acts.gen.h"
+	@echo "  run        - Build and run"
+	@echo "  clean      - Remove build artifacts"
+	@echo "  app-bundle           - macOS .app bundle (local + itch.io / S3)"
+	@echo "  run-app              - Build .app and open in Finder"
+	@echo "  itch-macos           - Release build + .app for itch.io / S3 (vendored raylib 6.0)"
+	@echo "  itch-windows   - Release build + release/ folder for itch.io / S3 (MinGW)"
+	@echo "  package-windows - Stage release/ from an existing Release build (Windows)"
+	@echo "  smoke        - Build headless smoke binary (CI resource validation)"
+	@echo "  run-smoke    - Run headless smoke test (no display required)"
+	@echo "  smoke-test-bundle - Validate .app layout + resources after packaging"
+	@echo ""
+	@echo "Raylib: Use 'brew install raylib' or clone raylib into ./raylib"
+
+vendor-raylib:
+	@if [ ! -d raylib/src ]; then \
+		echo "Cloning raylib $(RAYLIB_TAG)..."; \
+		git clone --depth 1 --branch $(RAYLIB_TAG) https://github.com/raysan5/raylib.git; \
+	fi
+	@echo "Building libraylib.a (raylib $(RAYLIB_TAG))..."
+	@rm -f raylib/src/libraylib.a raylib/src/libraylib.*.dylib raylib/src/libraylib.dylib
+	@$(RAYLIB_MAKE) -C raylib/src PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC -j4
+
+# Release + static raylib + .app bundle (matches CI).
+itch-macos: vendor-raylib
+	@$(MAKE) --no-print-directory RAYLIB_VENDOR=1 config=release_arm64 all smoke app-bundle
+	@echo "==== itch.io macOS bundle ready: $(APP_BUNDLE) ===="
+
+run-app: app-bundle
+	@open "$(APP_BUNDLE)"
+
+# Create .app bundle (for itch.io, local run). Does not depend on `all` so CI can build then bundle.
+app-bundle:
+	@echo "==== Creating macOS .app bundle ===="
+	@if [ "$(UNAME_S)" != "Darwin" ]; then \
+		echo "Error: app-bundle is macOS only"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(EXECUTABLE)" ]; then \
+		echo "Error: Executable not found at $(EXECUTABLE)"; \
+		echo "Build first: make config=$(config) all"; \
+		exit 1; \
+	fi
+	@if [ "$(BUILD_CONFIG)" = "Release" ] && otool -L "$(EXECUTABLE)" 2>/dev/null | grep -qE 'libraylib|/opt/homebrew|/usr/local/lib|@rpath/libraylib'; then \
+		echo "Error: $(EXECUTABLE) is not statically linked (found external libraylib)."; \
+		echo "Run: make clean && make itch-macos"; \
+		exit 1; \
+	fi
+	@echo "Building app bundle from $(BUILD_CONFIG) configuration..."
+	@rm -rf "$(APP_BUNDLE)"
+	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES_DIR)"
+	@cp "$(EXECUTABLE)" "$(MACOS_DIR)/$(APP_NAME)"
+	@chmod +x "$(MACOS_DIR)/$(APP_NAME)"
+	@if [ -d "resources" ]; then \
+		rsync -a --delete resources/ "$(RESOURCES_DIR)/resources/"; \
+		rsync -a --delete resources/ "$(MACOS_DIR)/resources/"; \
+	fi
+	@if [ -d "$(dir $(EXECUTABLE))resources" ]; then \
+		rsync -a "$(dir $(EXECUTABLE))resources/" "$(RESOURCES_DIR)/resources/" 2>/dev/null || true; \
+		rsync -a "$(dir $(EXECUTABLE))resources/" "$(MACOS_DIR)/resources/" 2>/dev/null || true; \
+	fi
+	@echo '<?xml version="1.0" encoding="UTF-8"?>' > "$(CONTENTS_DIR)/Info.plist"
+	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '<plist version="1.0">' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '<dict>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>CFBundleExecutable</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>$(APP_NAME)</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>CFBundleIdentifier</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>$(BUNDLE_ID)</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>CFBundleName</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>$(PRODUCT_NAME)</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>CFBundleVersion</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>$(PRODUCT_VERSION)</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>CFBundleShortVersionString</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>$(PRODUCT_VERSION)</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>CFBundlePackageType</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>APPL</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>CFBundleInfoDictionaryVersion</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>6.0</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>LSMinimumSystemVersion</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>10.9</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<key>NSHumanReadableCopyright</key>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '	<string>$(COPYRIGHT)</string>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '</dict>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo '</plist>' >> "$(CONTENTS_DIR)/Info.plist"
+	@echo "Signing app bundle..."
+	@if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then \
+		SIGN_IDENTITY=$$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/'); \
+		echo "Using Developer ID certificate: $$SIGN_IDENTITY"; \
+		codesign --force --deep --sign "$$SIGN_IDENTITY" --options runtime --timestamp "$(APP_BUNDLE)" 2>/dev/null || \
+		codesign --force --deep --sign "$$SIGN_IDENTITY" --options runtime "$(APP_BUNDLE)"; \
+	else \
+		echo "No Developer ID certificate found, using ad-hoc signing"; \
+		codesign --force --deep --sign - --options runtime "$(APP_BUNDLE)"; \
+	fi
+	@echo "Verifying app bundle signature..."
+	@if codesign --verify --deep --strict --verbose=2 "$(APP_BUNDLE)" 2>&1; then \
+		echo "Signature verification passed"; \
+	else \
+		echo "Warning: Signature verification failed (common for ad-hoc signing)"; \
+	fi
+	@echo "==== App bundle complete: $(APP_BUNDLE) ===="
+itch-windows: vendor-raylib
+	@$(MAKE) --no-print-directory RAYLIB_VENDOR=1 WINDOWS_GUI=1 config=release_x64 CC=gcc package-windows
+	@echo "==== itch.io Windows bundle ready: $(WIN_RELEASE_DIR)/ ===="
+
+# Runs inside nested make (config=release_x64) so $(EXECUTABLE) is bin/Release/*.exe.
+package-windows: all
+	@rm -rf "$(WIN_RELEASE_DIR)"
+	@mkdir -p "$(WIN_RELEASE_DIR)"
+	@cp "$(EXECUTABLE)" "$(WIN_EXE)"
+	@cp -R resources "$(WIN_RELEASE_DIR)/"
+
+# Release + static raylib + release/ tree (matches CI).

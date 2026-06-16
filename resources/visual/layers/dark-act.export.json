@@ -1,0 +1,361 @@
+{
+  "background_png": "resources/visual/layers/dark-act-background.png",
+  "collision_png": "resources/visual/layers/dark-act.png",
+  "doors": [
+    {
+      "h": 32,
+      "id": "door-1",
+      "room_a": "r-1",
+      "room_b": "r-2",
+      "spawn_a": {
+        "x": 799.5,
+        "y": 232
+      },
+      "spawn_b": {
+        "x": 967.5,
+        "y": 232
+      },
+      "w": 193,
+      "x": 783,
+      "y": 208
+    },
+    {
+      "h": 31,
+      "id": "door-2",
+      "room_a": "r-2",
+      "room_b": "r-3",
+      "spawn_a": {
+        "x": 1573,
+        "y": 184
+      },
+      "spawn_b": {
+        "x": 1704.5,
+        "y": 184
+      },
+      "w": 148,
+      "x": 1564,
+      "y": 161
+    },
+    {
+      "h": 32,
+      "id": "door-3",
+      "room_a": "r-3",
+      "room_b": "r-4",
+      "spawn_a": {
+        "x": 2299.5,
+        "y": 168
+      },
+      "spawn_b": {
+        "x": 2554.5,
+        "y": 168
+      },
+      "w": 276,
+      "x": 2288,
+      "y": 144
+    },
+    {
+      "h": 32,
+      "id": "door-4",
+      "room_a": "r-4",
+      "room_b": "r-5",
+      "spawn_a": {
+        "x": 2553.5,
+        "y": 440
+      },
+      "spawn_b": {
+        "x": 2391,
+        "y": 440
+      },
+      "w": 180,
+      "x": 2382,
+      "y": 416
+    },
+    {
+      "h": 32,
+      "id": "door-6",
+      "room_a": "r-5",
+      "room_b": "r-6",
+      "spawn_a": {
+        "x": 2391,
+        "y": 696
+      },
+      "spawn_b": {
+        "x": 2570,
+        "y": 696
+      },
+      "w": 198,
+      "x": 2382,
+      "y": 672
+    },
+    {
+      "h": 38,
+      "id": "door-7",
+      "room_a": "r-6",
+      "room_b": "r-7",
+      "spawn_a": {
+        "x": 2569,
+        "y": 1018
+      },
+      "spawn_b": {
+        "x": 2390,
+        "y": 1018
+      },
+      "w": 196,
+      "x": 2382,
+      "y": 988
+    },
+    {
+      "h": 33,
+      "id": "door-8",
+      "room_a": "r-7",
+      "room_b": "r-8",
+      "spawn_a": {
+        "x": 2247,
+        "y": 1145
+      },
+      "spawn_b": {
+        "x": 1889.5,
+        "y": 1145
+      },
+      "w": 384,
+      "x": 1872,
+      "y": 1120
+    },
+    {
+      "h": 48,
+      "id": "door-9",
+      "room_a": "r-8",
+      "room_b": "r-9",
+      "spawn_a": {
+        "x": 1232,
+        "y": 584
+      },
+      "spawn_b": {
+        "x": 1115.5,
+        "y": 584
+      },
+      "w": 160,
+      "x": 1088,
+      "y": 544
+    }
+  ],
+  "height": 1344,
+  "id": "dark-act",
+  "rooms": [
+    {
+      "h": 241,
+      "id": "ir-1",
+      "isolated": true,
+      "name": "Isolated Room 1",
+      "view_h": 241,
+      "view_y": 528,
+      "w": 288,
+      "x": 32,
+      "y": 528
+    },
+    {
+      "h": 225,
+      "id": "ir-2",
+      "isolated": true,
+      "name": "Isolated Room 2",
+      "view_h": 225,
+      "view_y": 799,
+      "w": 288,
+      "x": 32,
+      "y": 799
+    },
+    {
+      "h": 218,
+      "id": "r-1",
+      "isolated": false,
+      "name": "Act Start",
+      "view_h": 218,
+      "view_y": 183,
+      "w": 787,
+      "x": 29,
+      "y": 183
+    },
+    {
+      "h": 274,
+      "id": "r-2",
+      "isolated": false,
+      "view_h": 274,
+      "view_y": 127,
+      "w": 623,
+      "x": 959,
+      "y": 127
+    },
+    {
+      "h": 324,
+      "id": "r-3",
+      "isolated": false,
+      "view_h": 324,
+      "view_y": 12,
+      "w": 614,
+      "x": 1697,
+      "y": 12
+    },
+    {
+      "h": 336,
+      "id": "r-4",
+      "isolated": false,
+      "view_h": 336,
+      "view_y": 131,
+      "w": 160,
+      "x": 2545,
+      "y": 131
+    },
+    {
+      "h": 337,
+      "id": "r-5",
+      "isolated": false,
+      "view_h": 337,
+      "view_y": 397,
+      "w": 160,
+      "x": 2240,
+      "y": 397
+    },
+    {
+      "h": 404,
+      "id": "r-6",
+      "isolated": false,
+      "view_h": 404,
+      "view_y": 655,
+      "w": 151,
+      "x": 2560,
+      "y": 655
+    },
+    {
+      "h": 274,
+      "id": "r-7",
+      "isolated": false,
+      "view_h": 274,
+      "view_y": 927,
+      "w": 160,
+      "x": 2238,
+      "y": 927
+    },
+    {
+      "h": 694,
+      "id": "r-8",
+      "isolated": false,
+      "view_h": 694,
+      "view_y": 512,
+      "w": 691,
+      "x": 1216,
+      "y": 512
+    },
+    {
+      "h": 610,
+      "id": "r-9",
+      "isolated": false,
+      "view_h": 610,
+      "view_y": 431,
+      "w": 713,
+      "x": 430,
+      "y": 431
+    }
+  ],
+  "saves": [
+    {
+      "index": 0,
+      "room": "r-1",
+      "x": 147,
+      "y": 315
+    },
+    {
+      "index": 1,
+      "room": "r-2",
+      "x": 1159,
+      "y": 197
+    },
+    {
+      "index": 2,
+      "room": "r-3",
+      "x": 2120,
+      "y": 88
+    },
+    {
+      "index": 3,
+      "room": "r-7",
+      "x": 2304,
+      "y": 953
+    },
+    {
+      "index": 4,
+      "room": "r-8",
+      "x": 1737,
+      "y": 630
+    },
+    {
+      "index": 6,
+      "room": "r-9",
+      "x": 616,
+      "y": 471
+    }
+  ],
+  "teleports": [
+    {
+      "h": 16,
+      "id": "teleport-ir1-a",
+      "link": "teleport-r1-a",
+      "name": "Teleport to Start",
+      "room": "ir-1",
+      "spawn_x": 55,
+      "spawn_y": 744,
+      "w": 16,
+      "x": 47,
+      "y": 736
+    },
+    {
+      "h": 16,
+      "id": "teleport-ir1-b",
+      "link": "teleport-ir2-a",
+      "name": "Teleport to Isolated Room 2",
+      "room": "ir-1",
+      "spawn_x": 296,
+      "spawn_y": 744,
+      "w": 16,
+      "x": 288,
+      "y": 736
+    },
+    {
+      "h": 16,
+      "id": "teleport-ir2-a",
+      "link": "teleport-ir1-b",
+      "name": "Teleport to Isolated Room 1",
+      "room": "ir-2",
+      "spawn_x": 55,
+      "spawn_y": 872,
+      "w": 16,
+      "x": 47,
+      "y": 864
+    },
+    {
+      "h": 16,
+      "id": "teleport-ir2-b",
+      "link": "teleport-r1-a",
+      "name": "Teleport to Start",
+      "room": "ir-2",
+      "spawn_x": 296,
+      "spawn_y": 856,
+      "w": 16,
+      "x": 288,
+      "y": 848
+    },
+    {
+      "h": 16,
+      "id": "teleport-r1-a",
+      "link": "teleport-ir1-a",
+      "name": "Teleport to Isolated Room 1",
+      "room": "r-1",
+      "spawn_x": 56,
+      "spawn_y": 296,
+      "w": 16,
+      "x": 48,
+      "y": 288
+    }
+  ],
+  "tile_size": 16,
+  "width": 2880
+}

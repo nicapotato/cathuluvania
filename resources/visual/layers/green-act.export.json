@@ -1,0 +1,114 @@
+{
+  "background_png": "resources/visual/layers/green-act-background.png",
+  "collision_png": "resources/visual/layers/green-act.png",
+  "doors": [],
+  "height": 1008,
+  "id": "green-act",
+  "rooms": [
+    {
+      "h": 241,
+      "id": "ir-1",
+      "isolated": true,
+      "name": "Isolated Room 1",
+      "view_h": 241,
+      "view_y": 512,
+      "w": 288,
+      "x": 0,
+      "y": 512
+    },
+    {
+      "h": 225,
+      "id": "ir-2",
+      "isolated": true,
+      "name": "Isolated Room 2",
+      "view_h": 225,
+      "view_y": 783,
+      "w": 288,
+      "x": 0,
+      "y": 783
+    },
+    {
+      "h": 208,
+      "id": "r-1",
+      "isolated": false,
+      "name": "Act Start",
+      "view_h": 208,
+      "view_y": 176,
+      "w": 199,
+      "x": -1,
+      "y": 176
+    }
+  ],
+  "saves": [
+    {
+      "index": 0,
+      "room": "r-1",
+      "x": 30,
+      "y": 335
+    }
+  ],
+  "teleports": [
+    {
+      "h": 16,
+      "id": "teleport-ir1-a",
+      "link": "teleport-r1-a",
+      "name": "Teleport to Start",
+      "room": "ir-1",
+      "spawn_x": 23,
+      "spawn_y": 728,
+      "w": 16,
+      "x": 15,
+      "y": 720
+    },
+    {
+      "h": 16,
+      "id": "teleport-ir1-b",
+      "link": "teleport-ir2-a",
+      "name": "Teleport to Isolated Room 2",
+      "room": "ir-1",
+      "spawn_x": 264,
+      "spawn_y": 728,
+      "w": 16,
+      "x": 256,
+      "y": 720
+    },
+    {
+      "h": 16,
+      "id": "teleport-ir2-a",
+      "link": "teleport-ir1-b",
+      "name": "Teleport to Isolated Room 1",
+      "room": "ir-2",
+      "spawn_x": 23,
+      "spawn_y": 856,
+      "w": 16,
+      "x": 15,
+      "y": 848
+    },
+    {
+      "h": 16,
+      "id": "teleport-ir2-b",
+      "link": "teleport-r1-a",
+      "name": "Teleport to Start",
+      "room": "ir-2",
+      "spawn_x": 264,
+      "spawn_y": 840,
+      "w": 16,
+      "x": 256,
+      "y": 832
+    },
+    {
+      "h": 16,
+      "id": "teleport-r1-a",
+      "link": "teleport-ir1-a",
+      "name": "Teleport to Isolated Room 1",
+      "room": "r-1",
+      "spawn_x": 24,
+      "spawn_y": 280,
+      "w": 16,
+      "x": 16,
+      "y": 272
+    }
+  ],
+  "tile_size": 16,
+  "width": 2208
+}
