@@ -1,11 +1,19 @@
 # Cathuluvania - Cross-platform Makefile
+# CI workflows use workflow_dispatch; run `gh` from this directory.
 # raylib 6.0 is vendored under external/raylib-master (gitignored).
 
 .SUFFIXES:
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean run help app-bundle run-app assets vendor-raylib itch-macos itch-windows package-windows smoke run-smoke smoke-test-bundle
+.PHONY: all clean run help app-bundle run-app assets vendor-raylib itch-macos itch-windows package-windows smoke run-smoke smoke-test-bundle cathuluvania-ci cathuluvania-ci-watch cathuluvania-release cathuluvania-release-watch
+
+CATHULUVANIA_WORKFLOW := .github/workflows/cathuluvania-cicd.yml
+# Default platform: all | web | macos | windows
+PLATFORM ?= all
+# git ref to run the workflow on (gh uses the default branch if omitted). Default = current branch.
+# Your branch must be pushed to origin. Override: make cathuluvania-ci REF=main
+REF ?= $(shell git branch --show-current 2>/dev/null)
 
 APP_NAME = Cathuluvania
 SMOKE_BIN = Cathuluvania_smoke
@@ -199,8 +207,13 @@ help:
 	@echo "  run-smoke    - Run headless smoke test (no display required)"
 	@echo "  smoke-test-bundle - Validate .app layout + resources after packaging"
 	@echo "  vendor-raylib  - Clone raylib $(RAYLIB_VERSION_REQUIRED) into external/raylib-master"
+	@echo "  cathuluvania-ci            - Dispatch CI workflow (PLATFORM, VERSION, CHANNEL, REF)"
+	@echo "  cathuluvania-ci-watch      - Dispatch CI workflow and watch the run"
+	@echo "  cathuluvania-release       - Full release: all platforms, itch.io + S3 + GitHub Release"
+	@echo "  cathuluvania-release-watch - Dispatch release and watch the run"
 	@echo ""
 	@echo "Raylib: vendored at external/raylib-master ($(RAYLIB_VERSION_REQUIRED))"
+	@echo "CI: PLATFORM=all|web|macos|windows  REF=branch  VERSION=  CHANNEL="
 
 # Release + static raylib + .app bundle (matches CI).
 itch-macos:
@@ -292,4 +305,39 @@ package-windows: all
 	@cp "$(EXECUTABLE)" "$(WIN_EXE)"
 	@cp -R resources "$(WIN_RELEASE_DIR)/"
 
-# Release + static raylib + release/ tree (matches CI).
+# Dispatch the Cathuluvania workflow. Examples:
+#   make cathuluvania-ci
+#   make cathuluvania-ci PLATFORM=macos
+#   make cathuluvania-ci PLATFORM=windows VERSION=1.2.3
+#   make cathuluvania-ci PLATFORM=web CHANNEL=web
+# Requires: gh (https://cli.github.com/), authenticated (`gh auth login`).
+cathuluvania-ci:
+	gh workflow run "$(CATHULUVANIA_WORKFLOW)" \
+		$(if $(REF),-r "$(REF)",) \
+		-f build_platform="$(PLATFORM)" \
+		$(if $(VERSION),-f version="$(VERSION)",) \
+		$(if $(CHANNEL),-f channel="$(CHANNEL)",)
+
+# Full release: build all platforms, publish itch.io + S3 + GitHub Release (tag from project.conf).
+# Examples:
+#   make cathuluvania-release
+#   make cathuluvania-release REF=main
+cathuluvania-release:
+	gh workflow run "$(CATHULUVANIA_WORKFLOW)" \
+		$(if $(REF),-r "$(REF)",) \
+		-f build_platform=all \
+		-f publish_gh_release=true \
+		$(if $(VERSION),-f version="$(VERSION)",) \
+		$(if $(CHANNEL),-f channel="$(CHANNEL)",)
+
+cathuluvania-ci-watch: cathuluvania-ci
+	@sleep 2
+	@RID=$$(gh run list --workflow="$(CATHULUVANIA_WORKFLOW)" -L 1 --json databaseId -q '.[0].databaseId'); \
+		test -n "$$RID"; \
+		gh run watch "$$RID"
+
+cathuluvania-release-watch: cathuluvania-release
+	@sleep 2
+	@RID=$$(gh run list --workflow="$(CATHULUVANIA_WORKFLOW)" -L 1 --json databaseId -q '.[0].databaseId'); \
+		test -n "$$RID"; \
+		gh run watch "$$RID"
