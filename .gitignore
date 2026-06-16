@@ -9,3 +9,4 @@ external/raylib-master
 Cathuluvania.app/
 Debug
 .DS_Store
+resources/.DS_Store

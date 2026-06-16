@@ -23,6 +23,14 @@ on:
         required: false
         default: ''
         type: string
+      publish_gh_release:
+        description: 'Create tag + GitHub Release (uses project.conf version)'
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
   # pull_request:
   #   branches: [ main, feature-* ]
   #   types: [ opened, synchronize, reopened ]
@@ -35,7 +43,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 env:
@@ -51,16 +59,29 @@ env:
   # cathuluvania: flip to 'false' to skip butler / S3 while testing this workflow
   PUBLISH_ITCH: 'true'
   PUBLISH_S3: 'true'
+  PUBLISH_GH_RELEASE: 'false'
 
 jobs:
-  # Job-level `if` cannot use `env`; expose workflow env flags for publish-s3 gating.
+  # Job-level `if` cannot use `env`; expose workflow env flags for publish-s3 / GH release gating.
   resolve-publish-flags:
     runs-on: ubuntu-latest
     outputs:
       publish_s3: ${{ steps.flags.outputs.publish_s3 }}
+      publish_gh_release: ${{ steps.flags.outputs.publish_gh_release }}
     steps:
       - id: flags
-        run: echo "publish_s3=${PUBLISH_S3}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_GH: ${{ github.event.inputs.publish_gh_release }}
+        run: |
+          set -euo pipefail
+          echo "publish_s3=${PUBLISH_S3}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "publish_gh_release=${INPUT_GH}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "publish_gh_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_gh_release=${PUBLISH_GH_RELEASE}" >> "$GITHUB_OUTPUT"
+          fi
 
   # Single version for S3/catalog when some build jobs are skipped (no job output).
   read-version:
@@ -147,8 +168,12 @@ jobs:
           make -f Makefile.web package
           echo "✅ Package created"
 
-      - name: Upload WASM zip artifact (S3 publish)
-        if: env.PUBLISH_S3 == 'true'
+      - name: Upload WASM zip artifact (S3 / GitHub Release)
+        if: >-
+          env.PUBLISH_S3 == 'true' ||
+          env.PUBLISH_GH_RELEASE == 'true' ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_gh_release == 'true') ||
+          startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: cathuluvania-wasm-zip
@@ -267,8 +292,12 @@ jobs:
           codesign -dv --verbose=2 Cathuluvania.app 2>&1 | head -20 || true
           echo "✅ Headless smoke tests passed"
 
-      - name: Upload macOS zip artifact (S3 publish)
-        if: env.PUBLISH_S3 == 'true'
+      - name: Upload macOS zip artifact (S3 / GitHub Release)
+        if: >-
+          env.PUBLISH_S3 == 'true' ||
+          env.PUBLISH_GH_RELEASE == 'true' ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_gh_release == 'true') ||
+          startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: cathuluvania-macos-zip
@@ -384,8 +413,12 @@ jobs:
           Compress-Archive -Path "release\*" -DestinationPath "Cathuluvania-windows.zip" -Force
           echo "✅ Package created: Cathuluvania-windows.zip"
 
-      - name: Upload Windows zip artifact (S3 publish)
-        if: env.PUBLISH_S3 == 'true'
+      - name: Upload Windows zip artifact (S3 / GitHub Release)
+        if: >-
+          env.PUBLISH_S3 == 'true' ||
+          env.PUBLISH_GH_RELEASE == 'true' ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_gh_release == 'true') ||
+          startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: cathuluvania-windows-zip
@@ -539,3 +572,141 @@ jobs:
 
           aws s3 cp catalog.merged.json "s3://${BUCKET}/${CATALOG_KEY}" --content-type application/json
           echo "✅ Published to s3://${BUCKET}/${PREFIX}/ and updated ${CATALOG_KEY}"
+
+  # Creates git tag (dispatch), GitHub Release assets, and release notes.
+  publish-github-release:
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-publish-flags
+      - read-version
+      - build-and-push-web
+      - build-and-push-macos
+      - build-and-push-windows
+    if: |
+      always() &&
+      needs.resolve-publish-flags.outputs.publish_gh_release == 'true' &&
+      needs.read-version.result == 'success' &&
+      (needs.build-and-push-web.result == 'success' ||
+       needs.build-and-push-macos.result == 'success' ||
+       needs.build-and-push-windows.result == 'success')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version and tag
+        id: tag
+        env:
+          VERSION: ${{ needs.read-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "✅ Release tag: ${TAG}"
+
+      - name: Guard duplicate release (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "❌ Tag ${TAG} already exists; bump VERSION in project.conf for a new release"
+            exit 1
+          fi
+          echo "✅ Tag ${TAG} is available"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Prepare release assets and checksums
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          WZIP="dist/cathuluvania-wasm-zip/cathuluvania_wasm.zip"
+          MZIP="dist/cathuluvania-macos-zip/Cathuluvania-macos.zip"
+          WINZIP="dist/cathuluvania-windows-zip/Cathuluvania-windows.zip"
+          DL_BODY="## Downloads"
+
+          if [ -f "$WZIP" ]; then
+            cp "$WZIP" release-assets/
+            S=$(sha256sum "$WZIP" | awk '{print $1}')
+            printf '%s  cathuluvania_wasm.zip\n' "$S" > release-assets/cathuluvania_wasm.zip.sha256
+            DL_BODY="${DL_BODY}"$'\n'"- **Web (WASM):** \`cathuluvania_wasm.zip\` (\`${S}\`)"
+            echo "web=passing" >> "$GITHUB_OUTPUT"
+          else
+            echo "web=skipped" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f "$MZIP" ]; then
+            cp "$MZIP" release-assets/
+            S=$(sha256sum "$MZIP" | awk '{print $1}')
+            printf '%s  Cathuluvania-macos.zip\n' "$S" > release-assets/Cathuluvania-macos.zip.sha256
+            DL_BODY="${DL_BODY}"$'\n'"- **macOS (Apple Silicon):** \`Cathuluvania-macos.zip\` (\`${S}\`)"
+            echo "macos=passing" >> "$GITHUB_OUTPUT"
+          else
+            echo "macos=skipped" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f "$WINZIP" ]; then
+            cp "$WINZIP" release-assets/
+            S=$(sha256sum "$WINZIP" | awk '{print $1}')
+            printf '%s  Cathuluvania-windows.zip\n' "$S" > release-assets/Cathuluvania-windows.zip.sha256
+            DL_BODY="${DL_BODY}"$'\n'"- **Windows x64:** \`Cathuluvania-windows.zip\` (\`${S}\`)"
+            echo "windows=passing" >> "$GITHUB_OUTPUT"
+          else
+            echo "windows=skipped" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ ! -f release-assets/cathuluvania_wasm.zip ] && \
+             [ ! -f release-assets/Cathuluvania-macos.zip ] && \
+             [ ! -f release-assets/Cathuluvania-windows.zip ]; then
+            echo "❌ No release artifacts found"
+            exit 1
+          fi
+
+          {
+            echo "body<<EOF"
+            echo "$DL_BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Append scoped commit notes
+        id: notes
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          if [ -n "$PREV" ]; then
+            RANGE="${PREV}..${TAG}"
+          else
+            RANGE="${TAG}"
+          fi
+          LOG=$(git log "$RANGE" -- src/ include/ resources/ Makefile Makefile.web --pretty=format:"- %s (%h)" 2>/dev/null || true)
+          if [ -n "$LOG" ]; then
+            {
+              echo "extra<<EOF"
+              echo "## Changes"
+              echo "$LOG"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Cathuluvania ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            ${{ steps.notes.outputs.extra }}
+
+            ${{ steps.assets.outputs.body }}
+          files: |
+            release-assets/*
