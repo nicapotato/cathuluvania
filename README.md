@@ -1,4 +1,4 @@
-# Platformer 2D
+# Cathuluvania
 
 A minimal raylib C 2D platformer with Aseprite layer-driven acts, parallax scrolling, and horizontal camera follow.
 
@@ -67,7 +67,7 @@ Use `level_get_active_zone()` for the current combat room and `level_zone_at()` 
 
 ```bash
 make assets  # Export PNGs + regenerate src/acts.gen.h (requires aseprite on PATH)
-make         # Build → bin/Debug/Platformer2D
+make         # Build → bin/Debug/Cathuluvania
 make run     # Build and run
 make clean   # Remove build artifacts
 make app-bundle  # macOS .app for distribution
@@ -91,4 +91,4 @@ python3 -m http.server 8000 --directory bin/wasm
 
 ## CI/CD
 
-Cross-platform builds are in `.github/workflows/platformer-2d-cicd.yml` (web, macOS, Windows). Publishing to itch.io/S3 is disabled by default.
+Cross-platform builds are in `.github/workflows/cathuluvania-cicd.yml` (web, macOS, Windows). Publishing to itch.io/S3 is disabled by default.

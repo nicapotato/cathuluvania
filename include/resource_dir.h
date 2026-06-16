@@ -77,7 +77,7 @@ extern "C" {
         return false;
     }
 
-    /* Platformer paths are "resources/visual/..." — cwd must be the parent of resources/. */
+    /* Game paths are "resources/visual/..." — cwd must be the parent of resources/. */
     inline static bool SearchAndSetResourceParentDir(const char* folderName)
     {
         if (DirectoryExists(folderName))

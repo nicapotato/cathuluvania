@@ -4,7 +4,7 @@
 #include "acts.h"
 #include "raylib.h"
 
-#define WINDOW_TITLE "Platformer 2D"
+#define WINDOW_TITLE "Cathuluvania"
 
 #define TILE_SIZE 16
 

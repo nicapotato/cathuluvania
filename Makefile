@@ -1,4 +1,4 @@
-# Platformer 2D - Cross-platform Makefile
+# Cathuluvania - Cross-platform Makefile
 # Uses pkg-config when raylib is installed (e.g. brew install raylib)
 # Or clone raylib into ./raylib for standalone build
 
@@ -6,11 +6,11 @@
 
 .PHONY: all clean run help app-bundle run-app assets vendor-raylib itch-macos itch-windows package-windows smoke run-smoke smoke-test-bundle
 
-APP_NAME = Platformer2D
-SMOKE_BIN = Platformer2D_smoke
-PRODUCT_NAME = Platformer2D
-BUNDLE_ID = io.itch.nicapotato.platformer-2d
-COPYRIGHT = (c) Platformer 2D
+APP_NAME = Cathuluvania
+SMOKE_BIN = Cathuluvania_smoke
+PRODUCT_NAME = Cathuluvania
+BUNDLE_ID = io.itch.nicapotato.cathuluvania
+COPYRIGHT = (c) Cathuluvania
 PRODUCT_VERSION := $(shell grep '^VERSION=' project.conf 2>/dev/null | cut -d= -f2)
 ifeq ($(PRODUCT_VERSION),)
   PRODUCT_VERSION := 0.0.0
@@ -72,7 +72,7 @@ SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/tile_co
 
 ASEPRITE ?= $(shell if [ -x /Applications/Aseprite.app/Contents/MacOS/aseprite ]; then echo /Applications/Aseprite.app/Contents/MacOS/aseprite; else echo aseprite; fi)
 ACTS = resources/visual/green-act.aseprite resources/visual/dark-act.aseprite
-EXPORT_SCRIPT = scripts/aesprite/export-platformer-level.lua
+EXPORT_SCRIPT = scripts/aesprite/export-act-level.lua
 REGISTRY_SCRIPT = scripts/aesprite/gen-acts-registry.lua
 ACTS_GEN = $(SRC_DIR)/acts.gen.h
 
@@ -204,7 +204,7 @@ clean:
 	rm -rf "$(WIN_RELEASE_DIR)"
 
 help:
-	@echo "Platformer 2D - raylib platformer"
+	@echo "Cathuluvania - raylib platformer"
 	@echo ""
 	@echo "Targets:"
 	@echo "  all        - Build (default)"

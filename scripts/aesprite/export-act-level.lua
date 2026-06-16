@@ -1,10 +1,10 @@
--- export-platformer-level.lua
+-- export-act-level.lua
 --
--- Platformer 2D — bake Aseprite layers to game PNGs + export manifest.
+-- Cathuluvania — bake Aseprite layers to game PNGs + export manifest.
 --
 -- Usage (CLI / Makefile):
 --   aseprite -b resources/visual/green-act.aseprite \
---     -script scripts/aesprite/export-platformer-level.lua
+--     -script scripts/aesprite/export-act-level.lua
 --
 -- Expected layers:
 --   backdrop  : background, parallax, parralax
@@ -176,7 +176,7 @@ local function notify(title, text)
 end
 
 local function fail(msg)
-  notify("Export Platformer Level", msg)
+  notify("Export Act Level", msg)
   error(msg)
 end
 
@@ -479,11 +479,11 @@ end
 
 local spr = app.activeSprite
 if not spr then
-  return notify("Export Platformer Level", "No active sprite.")
+  return notify("Export Act Level", "No active sprite.")
 end
 
 if not spr.filename or spr.filename == "" then
-  return notify("Export Platformer Level", "Save the .aseprite file first.")
+  return notify("Export Act Level", "Save the .aseprite file first.")
 end
 
 if CONFIG.useFirstFrame and #spr.frames > 0 then
@@ -627,7 +627,7 @@ end
 
 local summary = table.concat(results, "\n") .. "\n\n→ " .. outDir
 if okExport then
-  notify("Export Platformer Level", summary)
+  notify("Export Act Level", summary)
 else
   local sprite_path = spr.filename or "(unsaved)"
   local help = table.concat({
@@ -636,9 +636,9 @@ else
     "  File: " .. sprite_path,
     "  Slices panel — unique names, bounds overlapping rooms/tunnels, User Data keys",
     "  Saves: name save-<n> (save-0 required), slice center = player position",
-    "  See slice rules in: scripts/aesprite/export-platformer-level.lua (file header)",
+    "  See slice rules in: scripts/aesprite/export-act-level.lua (file header)",
     "Then re-run: make assets",
   }, "\n")
-  notify("Export Platformer Level (errors)", summary .. help)
+  notify("Export Act Level (errors)", summary .. help)
   fail("export validation failed for " .. stem)
 end

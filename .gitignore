@@ -5,5 +5,5 @@ release/
 *.o
 *.exe
 raylib/
-Platformer2D.app/
+Cathuluvania.app/
 Debug

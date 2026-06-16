@@ -25,7 +25,7 @@ static bool try_chdir_base(const char *base) {
     return false;
 }
 
-bool platformer_set_resource_root(void) {
+bool app_set_resource_root(void) {
     if (dir_has_resources("."))
         return true;
 
@@ -64,7 +64,7 @@ static bool dir_has_resources_w(const char *base) {
     return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-bool platformer_set_resource_root(void) {
+bool app_set_resource_root(void) {
     if (dir_has_resources_w("."))
         return true;
 
@@ -85,7 +85,7 @@ bool platformer_set_resource_root(void) {
 
 #else
 
-bool platformer_set_resource_root(void) {
+bool app_set_resource_root(void) {
     return true;
 }
 

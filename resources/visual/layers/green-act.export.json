@@ -1,7 +1,6 @@
 {
   "background_png": "resources/visual/layers/green-act-background.png",
   "collision_png": "resources/visual/layers/green-act.png",
-  "doors": [],
   "height": 1008,
   "id": "green-act",
   "rooms": [
@@ -110,5 +109,6 @@
     }
   ],
   "tile_size": 16,
+  "tunnels": [],
   "width": 2208
 }

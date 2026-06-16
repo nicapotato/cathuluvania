@@ -106,7 +106,7 @@ static const RoomDef ACT_dark_act_ROOMS[11] = {
     { .id = "r-6", .name = NULL, .isolated = false, .x = 2560.0f, .y = 655.0f, .w = 151.0f, .h = 404.0f, .view_y = 655.0f, .view_h = 404.0f },
     { .id = "r-7", .name = NULL, .isolated = false, .x = 2238.0f, .y = 927.0f, .w = 160.0f, .h = 274.0f, .view_y = 927.0f, .view_h = 274.0f },
     { .id = "r-8", .name = NULL, .isolated = false, .x = 1216.0f, .y = 512.0f, .w = 691.0f, .h = 694.0f, .view_y = 512.0f, .view_h = 694.0f },
-    { .id = "r-9", .name = NULL, .isolated = false, .x = 430.0f, .y = 431.0f, .w = 713.0f, .h = 610.0f, .view_y = 431.0f, .view_h = 610.0f }
+    { .id = "r-9", .name = NULL, .isolated = false, .x = 429.0f, .y = 415.0f, .w = 714.0f, .h = 626.0f, .view_y = 415.0f, .view_h = 626.0f }
 };
 
 static const TunnelDef ACT_dark_act_TUNNELS[8] = {

@@ -18,7 +18,7 @@ int main(void) {
     }
     SetTargetFPS(60);
 
-    if (!SearchAndSetResourceParentDir("resources") && !platformer_set_resource_root()) {
+    if (!SearchAndSetResourceParentDir("resources") && !app_set_resource_root()) {
         fprintf(stderr, "main: could not find resources/ for game data\n");
     }
 

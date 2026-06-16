@@ -31,7 +31,7 @@ static bool smoke_check_act(const ActDef *act) {
 }
 
 int main(void) {
-    platformer_set_resource_root();
+    app_set_resource_root();
 
     for (int i = 0; i < ACT_COUNT; i++) {
         if (!smoke_check_act(&ACTS[i]))

@@ -1,6 +1,6 @@
-# Makefile.web — WebAssembly build for Platformer 2D (Emscripten + raylib PLATFORM_WEB)
+# Makefile.web — WebAssembly build for Cathuluvania (Emscripten + raylib PLATFORM_WEB)
 
-PROJECT_NAME = platformer-2d
+PROJECT_NAME = cathuluvania
 
 RAYLIB_ROOT = build/external/raylib-master
 RAYLIB_SRC = $(RAYLIB_ROOT)/src

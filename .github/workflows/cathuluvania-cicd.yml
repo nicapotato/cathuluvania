@@ -1,0 +1,549 @@
+name: Cathuluvania CI/CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_platform:
+        description: 'Platform to build'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - web
+          - macos
+          - windows
+          - all
+      channel:
+        description: 'itch.io channel override; defaults per platform (web / macos-arm64 / windows) if empty'
+        required: false
+        default: ''
+        type: string
+      version:
+        description: 'Version override (leave empty to use project.conf)'
+        required: false
+        default: ''
+        type: string
+  # pull_request:
+  #   branches: [ main, feature-* ]
+  #   types: [ opened, synchronize, reopened ]
+  #   paths:
+  #     - 'src/**.c'
+  #     - 'src/**.h'
+
+concurrency:
+  group: cathuluvania-cicd-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_DIR: .
+  ITCH_USER: nicapotato
+  ITCH_GAME: cathuluvania
+  AWS_REGION: eu-west-2
+  S3_CATEGORY: games
+  S3_MATURITY: prototype
+  S3_GAME_KEY: cathuluvania
+  S3_IFRAME_WIDTH: "512"
+  S3_IFRAME_HEIGHT: "512"
+  # cathuluvania: flip to 'false' to skip butler / S3 while testing this workflow
+  PUBLISH_ITCH: 'true'
+  PUBLISH_S3: 'true'
+
+jobs:
+  # Job-level `if` cannot use `env`; expose workflow env flags for publish-s3 gating.
+  resolve-publish-flags:
+    runs-on: ubuntu-latest
+    outputs:
+      publish_s3: ${{ steps.flags.outputs.publish_s3 }}
+    steps:
+      - id: flags
+        run: echo "publish_s3=${PUBLISH_S3}" >> "$GITHUB_OUTPUT"
+
+  # Single version for S3/catalog when some build jobs are skipped (no job output).
+  read-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${INPUT_VERSION}" ]; then
+            echo "version=${INPUT_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "✅ Version from workflow input: ${INPUT_VERSION}"
+            exit 0
+          fi
+          f="${{ env.PROJECT_DIR }}/project.conf"
+          test -f "$f"
+          V=$(grep '^VERSION=' "$f" | cut -d= -f2)
+          if [ -z "${V}" ]; then
+            V="latest"
+          fi
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+          echo "✅ Version from project.conf: ${V}"
+
+  build-and-push-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.inputs.build_platform == 'web' || github.event.inputs.build_platform == 'all' || (github.event.inputs.build_platform == '' && (github.event_name == 'push' || github.event_name == 'pull_request'))
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 'latest'
+
+      - name: Setup Raylib
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          echo "📥 Setting up Raylib..."
+          mkdir -p build/external
+          cd build/external
+          if [ ! -d "raylib-master" ]; then
+            echo "Cloning raylib from GitHub..."
+            git clone --depth 1 https://github.com/raysan5/raylib.git raylib-master
+          else
+            echo "Raylib already exists, skipping clone"
+          fi
+          echo "✅ Raylib setup complete"
+
+      - name: Extract version
+        id: version
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "Using version from workflow input: $VERSION"
+          elif [ -f "project.conf" ]; then
+            VERSION=$(grep '^VERSION=' project.conf | cut -d= -f2)
+            if [ -z "$VERSION" ]; then
+              VERSION="latest"
+            fi
+            echo "Using version from project.conf: $VERSION"
+          else
+            VERSION="latest"
+            echo "Using default version: $VERSION"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "✅ Version set to: $VERSION"
+
+      - name: Build WebAssembly version
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          echo "🔨 Building WebAssembly version..."
+          make -f Makefile.web all
+          echo "✅ WebAssembly build complete"
+
+      - name: Package Web build
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          echo "📦 Packaging web build..."
+          make -f Makefile.web package
+          echo "✅ Package created"
+
+      - name: Upload WASM zip artifact (S3 publish)
+        if: env.PUBLISH_S3 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cathuluvania-wasm-zip
+          path: ${{ env.PROJECT_DIR }}/bin/wasm/cathuluvania_wasm.zip
+          if-no-files-found: error
+
+      - name: Upload WASM exploded artifact (S3 publish)
+        if: env.PUBLISH_S3 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cathuluvania-wasm-exploded
+          path: ${{ env.PROJECT_DIR }}/bin/wasm/
+          if-no-files-found: error
+
+      - name: Setup butler
+        if: env.PUBLISH_ITCH == 'true'
+        uses: remarkablegames/setup-butler@v2
+        with:
+          butler-version: LATEST
+
+      - name: Push to itch.io (web)
+        if: env.PUBLISH_ITCH == 'true'
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          CHANNEL="${{ github.event.inputs.channel }}"
+          if [ -z "$CHANNEL" ]; then
+            CHANNEL="web"
+          fi
+          VERSION="${{ steps.version.outputs.version }}"
+
+          echo "🔍 Debug: Checking BUTLER_API_KEY..."
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "❌ Error: BUTLER_API_KEY secret is not set (empty)"
+            exit 1
+          else
+            echo "✅ BUTLER_API_KEY is set (length: ${#BUTLER_API_KEY} characters)"
+          fi
+
+          if [ -z "${{ env.ITCH_USER }}" ] || [ -z "${{ env.ITCH_GAME }}" ]; then
+            echo "❌ Error: ITCH_USER and ITCH_GAME must be set in workflow env"
+            exit 1
+          fi
+
+          echo "🚀 Pushing to itch.io..."
+          echo "Game: ${{ env.ITCH_USER }}/${{ env.ITCH_GAME }}"
+          echo "Channel: ${CHANNEL}"
+          echo "Version: ${VERSION}"
+          echo "Directory: bin/wasm"
+
+          # itch.io: set game page type to HTML; embed index.html
+          butler push bin/wasm ${{ env.ITCH_USER }}/${{ env.ITCH_GAME }}:${CHANNEL} --userversion ${VERSION}
+
+          echo "✅ Successfully pushed to itch.io!"
+
+  build-and-push-macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    if: github.event.inputs.build_platform == 'macos' || github.event.inputs.build_platform == 'all' || (github.event.inputs.build_platform == '' && (github.event_name == 'push' || github.event_name == 'pull_request'))
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "Using version from workflow input: $VERSION"
+          elif [ -f "project.conf" ]; then
+            VERSION=$(grep '^VERSION=' project.conf | cut -d= -f2)
+            if [ -z "$VERSION" ]; then
+              VERSION="latest"
+            fi
+            echo "Using version from project.conf: $VERSION"
+          else
+            VERSION="latest"
+            echo "Using default version: $VERSION"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "✅ Version set to: $VERSION"
+
+      - name: Build release + smoke binary (vendored raylib)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          echo "🔨 Building macOS release (vendored raylib $(grep '^RAYLIB_TAG' Makefile | cut -d= -f2 | tr -d ' ') )..."
+          make vendor-raylib
+          make RAYLIB_VENDOR=1 config=release_arm64 all smoke
+
+      - name: Headless smoke test
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          make config=release_arm64 run-smoke
+
+      - name: Package macOS build (.app bundle for itch.io / S3)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          echo "📦 Creating .app bundle..."
+          make RAYLIB_VENDOR=1 config=release_arm64 app-bundle
+          make config=release_arm64 smoke-test-bundle
+          file Cathuluvania.app/Contents/MacOS/Cathuluvania
+          echo "📦 Packaging macOS build..."
+          ZIP_NAME="Cathuluvania-macos.zip"
+          rm -f "${ZIP_NAME}"
+          ditto -c -k --sequesterRsrc --keepParent Cathuluvania.app "${ZIP_NAME}"
+          echo "✅ Package created: ${ZIP_NAME}"
+          codesign -dv --verbose=2 Cathuluvania.app 2>&1 | head -20 || true
+          echo "✅ Headless smoke tests passed"
+
+      - name: Upload macOS zip artifact (S3 publish)
+        if: env.PUBLISH_S3 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cathuluvania-macos-zip
+          path: ${{ env.PROJECT_DIR }}/Cathuluvania-macos.zip
+          if-no-files-found: error
+
+      - name: Setup butler
+        if: env.PUBLISH_ITCH == 'true'
+        uses: remarkablegames/setup-butler@v2
+        with:
+          butler-version: LATEST
+
+      - name: Push to itch.io (macOS)
+        if: env.PUBLISH_ITCH == 'true'
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          set -euo pipefail
+          CHANNEL="${{ github.event.inputs.channel }}"
+          if [ -z "$CHANNEL" ] || [ "$CHANNEL" = "web" ]; then
+            CHANNEL="macos-arm64"
+          fi
+          VERSION="${{ steps.version.outputs.version }}"
+
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "❌ Error: BUTLER_API_KEY secret is not set"
+            exit 1
+          fi
+
+          if [ ! -d "Cathuluvania.app" ]; then
+            echo "❌ Error: Cathuluvania.app not found"
+            exit 1
+          fi
+
+          echo "🔏 Re-signing app before itch.io upload..."
+          codesign --force --sign - Cathuluvania.app/Contents/MacOS/Cathuluvania
+          codesign --force --deep --sign - Cathuluvania.app
+          codesign --verify --deep --strict Cathuluvania.app
+
+          echo "🚀 Pushing to itch.io..."
+          echo "Game: ${{ env.ITCH_USER }}/${{ env.ITCH_GAME }}"
+          echo "Channel: ${CHANNEL}"
+          echo "Version: ${VERSION}"
+          # Push .app directly so Butler tags the slot as macOS (channel name must contain mac/osx).
+          butler push Cathuluvania.app ${{ env.ITCH_USER }}/${{ env.ITCH_GAME }}:${CHANNEL} --userversion "${VERSION}"
+          echo "✅ Successfully pushed to itch.io!"
+
+  build-and-push-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    if: github.event.inputs.build_platform == 'windows' || github.event.inputs.build_platform == 'all' || (github.event.inputs.build_platform == '' && (github.event_name == 'push' || github.event_name == 'pull_request'))
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "Using version from workflow input: $VERSION"
+          elif [ -f "project.conf" ]; then
+            VERSION=$(grep '^VERSION=' project.conf | cut -d= -f2)
+            if [ -z "$VERSION" ]; then
+              VERSION="latest"
+            fi
+            echo "Using version from project.conf: $VERSION"
+          else
+            VERSION="latest"
+            echo "Using default version: $VERSION"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "✅ Version set to: $VERSION"
+
+      - name: Install MinGW
+        run: |
+          echo "📦 Installing MinGW..."
+          choco install mingw -y
+          echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "✅ MinGW installed"
+
+      - name: Build Windows release (itch.io / S3)
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
+          echo "🔨 Building Windows release (vendored raylib $(grep '^RAYLIB_TAG' Makefile | cut -d= -f2 | tr -d ' '))..."
+          mingw32-make itch-windows CC=gcc
+          ls -la release/Cathuluvania.exe release/resources/
+
+      - name: Package Windows build
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          echo "📦 Packaging Windows build..."
+          if (-not (Test-Path "release\Cathuluvania.exe")) {
+            Write-Host "❌ Error: release\Cathuluvania.exe not found"
+            exit 1
+          }
+          if (-not (Test-Path "release\resources")) {
+            Write-Host "❌ Error: release\resources not found"
+            exit 1
+          }
+          if (Test-Path "Cathuluvania-windows.zip") { Remove-Item "Cathuluvania-windows.zip" -Force }
+          Compress-Archive -Path "release\*" -DestinationPath "Cathuluvania-windows.zip" -Force
+          echo "✅ Package created: Cathuluvania-windows.zip"
+
+      - name: Upload Windows zip artifact (S3 publish)
+        if: env.PUBLISH_S3 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cathuluvania-windows-zip
+          path: ${{ env.PROJECT_DIR }}/Cathuluvania-windows.zip
+          if-no-files-found: error
+
+      - name: Setup butler
+        if: env.PUBLISH_ITCH == 'true'
+        uses: remarkablegames/setup-butler@v2
+        with:
+          butler-version: LATEST
+
+      - name: Push to itch.io (Windows)
+        if: env.PUBLISH_ITCH == 'true'
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        shell: pwsh
+        run: |
+          $CHANNEL = "${{ github.event.inputs.channel }}"
+          if ([string]::IsNullOrEmpty($CHANNEL)) {
+            $CHANNEL = "windows"
+          }
+          $VERSION = "${{ steps.version.outputs.version }}"
+
+          if ([string]::IsNullOrEmpty($env:BUTLER_API_KEY)) {
+            Write-Host "❌ Error: BUTLER_API_KEY secret is not set"
+            exit 1
+          }
+
+          if (-not (Test-Path "Cathuluvania-windows.zip")) {
+            Write-Host "❌ Error: ZIP file not found"
+            exit 1
+          }
+
+          Write-Host "🚀 Pushing to itch.io..."
+          butler push Cathuluvania-windows.zip ${{ env.ITCH_USER }}/${{ env.ITCH_GAME }}:$CHANNEL --userversion $VERSION
+          Write-Host "✅ Successfully pushed to itch.io!"
+
+  publish-s3:
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-publish-flags
+      - read-version
+      - build-and-push-web
+      - build-and-push-macos
+      - build-and-push-windows
+    if: |
+      needs.resolve-publish-flags.outputs.publish_s3 == 'true' &&
+      needs.read-version.result == 'success' &&
+      needs.build-and-push-web.result == 'success' &&
+      needs.build-and-push-macos.result == 'success' &&
+      needs.build-and-push-windows.result == 'success'
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PUBLIC_SOFTWARE_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Upload zips, WASM tree, checksums, merge catalog
+        env:
+          BUCKET: ${{ secrets.S3_PUBLIC_SOFTWARE_BUCKET }}
+          VERSION: ${{ needs.read-version.outputs.version }}
+          GAME_KEY: ${{ env.S3_GAME_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          BUCKET="${BUCKET:-prod-nicapotato-public-software}"
+          GAME="${GAME_KEY}"
+          VER="${VERSION}"
+          REGION="${AWS_REGION}"
+          BASE="https://${BUCKET}.s3.${REGION}.amazonaws.com"
+          CATEGORY="${{ env.S3_CATEGORY }}"
+          MATURITY="${{ env.S3_MATURITY }}"
+          PREFIX="${CATEGORY}/${MATURITY}/${GAME}/${VER}"
+          CATALOG_KEY="${CATEGORY}/${MATURITY}/catalog.json"
+
+          WZIP="dist/cathuluvania-wasm-zip/cathuluvania_wasm.zip"
+          MZIP="dist/cathuluvania-macos-zip/Cathuluvania-macos.zip"
+          WINZIP="dist/cathuluvania-windows-zip/Cathuluvania-windows.zip"
+          WDIR="dist/cathuluvania-wasm-exploded"
+
+          test -f "$WZIP" && test -f "$MZIP" && test -f "$WINZIP" && test -d "$WDIR"
+
+          aws s3 cp "$WZIP" "s3://${BUCKET}/${PREFIX}/cathuluvania-wasm.zip"
+          aws s3 cp "$MZIP" "s3://${BUCKET}/${PREFIX}/cathuluvania-macos.zip"
+          aws s3 cp "$WINZIP" "s3://${BUCKET}/${PREFIX}/cathuluvania-windows.zip"
+
+          sha256sum "$WZIP" | awk '{print $1 "  cathuluvania-wasm.zip"}' | aws s3 cp - "s3://${BUCKET}/${PREFIX}/cathuluvania-wasm.zip.sha256" --content-type text/plain
+          sha256sum "$MZIP" | awk '{print $1 "  cathuluvania-macos.zip"}' | aws s3 cp - "s3://${BUCKET}/${PREFIX}/cathuluvania-macos.zip.sha256" --content-type text/plain
+          sha256sum "$WINZIP" | awk '{print $1 "  cathuluvania-windows.zip"}' | aws s3 cp - "s3://${BUCKET}/${PREFIX}/cathuluvania-windows.zip.sha256" --content-type text/plain
+
+          cd "$WDIR"
+          find . -type f | while IFS= read -r f; do
+            rel="${f#./}"
+            case "$rel" in
+              *.html) ct=text/html ;;
+              *.js)   ct=application/javascript ;;
+              *.wasm) ct=application/wasm ;;
+              *.data) ct=application/octet-stream ;;
+              *.png)  ct=image/png ;;
+              *.jpg|*.jpeg) ct=image/jpeg ;;
+              *.json) ct=application/json ;;
+              *)      ct=application/octet-stream ;;
+            esac
+            aws s3 cp "$f" "s3://${BUCKET}/${PREFIX}/wasm/${rel}" --content-type "$ct"
+          done
+          cd - >/dev/null
+
+          SHA_W=$(sha256sum "$WZIP" | awk '{print $1}')
+          SHA_M=$(sha256sum "$MZIP" | awk '{print $1}')
+          SHA_WIN=$(sha256sum "$WINZIP" | awk '{print $1}')
+          RELEASED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          if ! aws s3 cp "s3://${BUCKET}/${CATALOG_KEY}" catalog.json 2>/dev/null; then
+            echo '{"games":{}}' > catalog.json
+          fi
+
+          NEW=$(jq -n \
+            --arg released "$RELEASED" \
+            --arg iw "${{ env.S3_IFRAME_WIDTH }}" \
+            --arg ih "${{ env.S3_IFRAME_HEIGHT }}" \
+            --arg wasm_zip "${BASE}/${PREFIX}/cathuluvania-wasm.zip" \
+            --arg sha_wasm "$SHA_W" \
+            --arg mac_zip "${BASE}/${PREFIX}/cathuluvania-macos.zip" \
+            --arg sha_mac "$SHA_M" \
+            --arg win_zip "${BASE}/${PREFIX}/cathuluvania-windows.zip" \
+            --arg sha_win "$SHA_WIN" \
+            --arg play_wasm "${BASE}/${PREFIX}/wasm/index.html" \
+            '{
+              released_at: $released,
+              iframe: {width: ($iw | tonumber), height: ($ih | tonumber)},
+              platforms: {
+                wasm: {zip_url: $wasm_zip, sha256: $sha_wasm, play_url: $play_wasm},
+                macos: {zip_url: $mac_zip, sha256: $sha_mac},
+                windows: {zip_url: $win_zip, sha256: $sha_win}
+              }
+            }')
+
+          jq --arg game "$GAME" --arg ver "$VER" --argjson entry "$NEW" \
+            '.games //= {}
+            | .games[$game] //= {display_name: "Cathuluvania", versions: {}}
+            | .games[$game].versions //= {}
+            | .games[$game].versions[$ver] = $entry' catalog.json > catalog.merged.json
+
+          aws s3 cp catalog.merged.json "s3://${BUCKET}/${CATALOG_KEY}" --content-type application/json
+          echo "✅ Published to s3://${BUCKET}/${PREFIX}/ and updated ${CATALOG_KEY}"
