@@ -1,4 +1,5 @@
 #include "main.h"
+#include "display.h"
 #include "game.h"
 #include "platform_path.h"
 #include "resource_dir.h"
@@ -6,13 +7,7 @@
 #include <stdlib.h>
 
 int main(void) {
-#if defined(__APPLE__) && defined(__MACH__)
-    SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
-#else
-    SetConfigFlags(FLAG_VSYNC_HINT);
-#endif
-    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
-    if (!IsWindowReady()) {
+    if (!display_init(WINDOW_TITLE)) {
         fprintf(stderr, "Failed to initialize window\n");
         return 1;
     }

@@ -46,7 +46,9 @@ Game metadata (label, spawn) is hand-written in [`src/acts_metadata.h`](src/acts
 ## Display
 
 - Viewport: **320×240** pixels (camera follows player; narrow rooms are centered in view)
-- Default window: 4× integer upscale
+- Default window: **960×720** (3× integer upscale); resizable with a **960×720** minimum
+- Scales up in whole-number steps to fit the window; **4:3** aspect is preserved with letterboxing on wider screens
+- **F11** — toggle fullscreen | **Alt+Enter** — toggle borderless windowed fullscreen
 - Parallax background scrolls slower than the camera
 
 ## Rooms and tunnels

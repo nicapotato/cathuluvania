@@ -1,6 +1,7 @@
 #include "game.h"
 #include "acts_metadata.h"
 #include "collision.h"
+#include "display.h"
 #include "main.h"
 #include "tile_config.h"
 #include <math.h>
@@ -472,25 +473,6 @@ static int ui_save_menu_height(const Game *g) {
         return 0;
     int rows = g->save_menu_open ? (g->level.save_count + 1) : 1;
     return UI_ACT_MENU_PAD * 2 + rows * UI_ACT_MENU_ROW_H;
-}
-
-typedef struct {
-    int draw_x;
-    int draw_y;
-    int draw_w;
-    int draw_h;
-    float scale;
-} GameViewport;
-
-static GameViewport game_viewport(const Game *g) {
-    GameViewport vp = { 0 };
-    (void)g;
-    vp.scale = (float)WINDOW_SCALE;
-    vp.draw_w = WINDOW_WIDTH;
-    vp.draw_h = WINDOW_HEIGHT;
-    vp.draw_x = 0;
-    vp.draw_y = 0;
-    return vp;
 }
 
 static Rectangle ui_debug_button_rect(void) {
@@ -1394,7 +1376,7 @@ static void game_draw_map(const Game *g) {
 }
 
 static void game_draw(Game *g) {
-    GameViewport vp = game_viewport(g);
+    DisplayViewport vp = display_viewport();
 
     BeginDrawing();
     ClearBackground(BLACK);
@@ -1490,6 +1472,7 @@ bool game_run(Game *game) {
         if (dt > 0.05f)
             dt = 0.05f;
 
+        display_handle_input();
         game_handle_input(game, dt);
         game_update(game, dt);
         game_draw_world(game);

@@ -80,7 +80,7 @@ COLLISION_TEST_EXECUTABLE = $(BIN_DIR)/$(BUILD_CONFIG)/$(COLLISION_TEST_BIN)$(EX
 COLLISION_TEST_SRCS = $(SRC_DIR)/collision_test.c $(SRC_DIR)/level.c $(SRC_DIR)/collision.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c $(SRC_DIR)/raylib_aseprite.c $(SRC_DIR)/layer_composite.c $(SRC_DIR)/player_sprite.c
 WIN_RELEASE_DIR = release
 WIN_EXE = $(WIN_RELEASE_DIR)/$(APP_NAME).exe
-SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/collision.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c $(SRC_DIR)/raylib_aseprite.c $(SRC_DIR)/layer_composite.c $(SRC_DIR)/player_sprite.c
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/display.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/collision.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c $(SRC_DIR)/raylib_aseprite.c $(SRC_DIR)/layer_composite.c $(SRC_DIR)/player_sprite.c
 
 ASEPRITE ?= $(shell if [ -x /Applications/Aseprite.app/Contents/MacOS/aseprite ]; then echo /Applications/Aseprite.app/Contents/MacOS/aseprite; else echo aseprite; fi)
 ACTS = resources/visual/green-act.aseprite resources/visual/dark-act.aseprite
