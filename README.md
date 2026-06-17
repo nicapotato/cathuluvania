@@ -18,7 +18,7 @@ Wall slide activates automatically when falling against a wall. Climbable tiles 
 
 Press **Tab** to enter editor mode (player physics paused, free camera pan).
 
-**Collision geometry** comes from Aseprite — the `primitives`, `collision`, or `base` layer exported to `<act>.png`. The in-game editor does not define collision independently; it edits that layer and writes back to the `.aseprite` file.
+**Collision geometry** comes from exported `base` (tile art) plus `<act>-primitives.png` (editor-painted solids). The in-game **B** / **E** tools edit only the **primitives overlay**; they never overwrite `base` or `template.aseprite`.
 
 **Tags** (slippery, climbable, etc.) are stored in `<act>.gameplay.json` and apply on top of existing solid tiles from Aseprite.
 
@@ -27,19 +27,32 @@ Press **Tab** to enter editor mode (player physics paused, free camera pan).
 | **Tab** / **Esc** | Exit editor |
 | **S** | Select solid tiles (Shift+click multi-select) |
 | **Tag panel** | Click flags on selected tiles |
-| **B** | Paint collision primitive (16×16 block) |
-| **E** | Erase collision primitive |
+| **B** | Paint collision on **primitives** layer |
+| **E** | Erase **primitives** layer cell |
 | **WASD / arrows** | Pan camera |
-| **Ctrl+S** | Save tags + collision → `.gameplay.json` and `.aseprite` (requires Aseprite CLI) |
+| **Ctrl+S** | Save tags + collision → `<act>-primitives.png` + `.gameplay.json` |
 | **Ctrl+N** | Create new empty act |
 
-On **Ctrl+S**, collision edits patch the act's `.aseprite` via `scripts/aesprite/write-collision-layer.lua`, then re-export PNGs via `export-act-level.lua`.
+On **Ctrl+S**, collision edits are written to `resources/visual/layers/<act>-primitives.png`. The game loads that PNG on restart. **`template.aseprite` is not modified** — rewriting it from the game was corrupting indexed/tilemap layers on `base`. Edit tile art in Aseprite; use the in-game editor only for quick collision layout.
+
+To import editor collision into Aseprite manually: open the act, import `layers/<act>-primitives.png` as a reference on the **primitives** layer (or run `make assets` after hand-copying the PNG content into the file in Aseprite).
 
 ### Creating a new act
 
-**Ctrl+N** scaffolds files and an `.aseprite` with standard layers (including `primitives` and tileset from [`green-act.aseprite.bk`](resources/visual/green-act.aseprite.bk)). Paint collision in Aseprite or with **B** in the editor, then **Ctrl+S**.
+**Template file:** [`resources/visual/template.aseprite`](resources/visual/template.aseprite) — copy of your standard act (layers, tileset, slices). Included in `make assets`.
 
-Acts are listed from [`resources/acts.manifest.json`](resources/acts.manifest.json) at runtime.
+**In-game:** **Tab** → **Ctrl+N** copies `template.aseprite` → `new-act-NNN.aseprite`, exports PNGs, updates the manifest, and loads the new act.
+
+**Manual:**
+
+```bash
+cp resources/visual/template.aseprite resources/visual/my-act.aseprite
+# edit in Aseprite, then:
+make assets   # or export one file:
+aseprite -b resources/visual/my-act.aseprite -script scripts/aesprite/export-act-level.lua
+```
+
+Add `{ "id": "my-act", "label": "My Act" }` to [`resources/acts.manifest.json`](resources/acts.manifest.json) and (for `make`) [`src/acts_metadata.h`](src/acts_metadata.h) + `ACTS` in the Makefile.
 
 ## Level authoring
 
@@ -64,7 +77,8 @@ make assets
 This produces per act under `resources/visual/layers/`:
 
 - `<act>-background.png` — backdrop + parallax
-- `<act>.png` — collision + render (opaque 16×16 cells = solid)
+- `<act>.png` — base tile art (opaque 16×16 cells = solid)
+- `<act>-primitives.png` — editor-painted collision overlay
 - `<act>.export.json` — auto-generated dimensions and paths
 - `<act>.gameplay.json` — tag overrides only (slippery, climb, …); editable in-game
 

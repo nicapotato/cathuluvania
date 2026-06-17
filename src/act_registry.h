@@ -75,6 +75,7 @@ bool act_registry_reload(ActRegistry *reg);
 int act_registry_count(const ActRegistry *reg);
 const ActDesc *act_registry_get(const ActRegistry *reg, int index);
 const ActDesc *act_registry_find(const ActRegistry *reg, const char *id);
+int act_registry_index_of(const ActRegistry *reg, const char *id);
 
 bool act_registry_append_manifest_entry(const char *manifest_path, const char *id, const char *label);
 

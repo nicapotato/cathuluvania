@@ -362,6 +362,16 @@ const ActDesc *act_registry_find(const ActRegistry *reg, const char *id) {
     return NULL;
 }
 
+int act_registry_index_of(const ActRegistry *reg, const char *id) {
+    if (!reg || !id)
+        return -1;
+    for (int i = 0; i < reg->count; i++) {
+        if (strcmp(reg->acts[i].id, id) == 0)
+            return i;
+    }
+    return -1;
+}
+
 bool act_registry_append_manifest_entry(const char *manifest_path, const char *id, const char *label) {
     if (!manifest_path || !id || !label)
         return false;

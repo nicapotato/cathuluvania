@@ -20,7 +20,7 @@ LDFLAGS += --preload-file resources/
 SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/tile_config.c \
        $(SRC_DIR)/tile_catalog.c $(SRC_DIR)/gameplay_grid.c $(SRC_DIR)/gameplay_io.c \
        $(SRC_DIR)/editor.c $(SRC_DIR)/act_registry.c $(SRC_DIR)/act_create.c \
-       $(SRC_DIR)/act_export.c $(SRC_DIR)/platform_path.c external/cjson/cJSON.c
+       $(SRC_DIR)/act_export.c $(SRC_DIR)/layer_composite.c $(SRC_DIR)/platform_path.c external/cjson/cJSON.c
 
 CFLAGS += -Iexternal/cjson
 

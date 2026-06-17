@@ -44,7 +44,7 @@ bool act_export_write_collision_layer(const char *aseprite_path, const char *png
     char cmd[2048];
     snprintf(cmd, sizeof(cmd),
              "\"%s\" -b -script-param aseprite=\"%s\" -script-param png=\"%s\" "
-             "-script \"%s\" 2>&1",
+             "-script-param layer=primitives -script \"%s\" 2>&1",
              aseprite_cli, aseprite_path, png_path, WRITE_COLLISION_SCRIPT);
 
     int rc = run_aseprite_cmd(cmd);
@@ -76,21 +76,19 @@ bool act_export_run_level_export(const char *aseprite_path) {
     return true;
 }
 
-bool act_export_save_collision(const char *aseprite_path, const Image *collision_image) {
-    if (!aseprite_path || !collision_image || !collision_image->data)
+bool act_export_save_collision(const char *aseprite_path, const char *primitives_png_path,
+                               const Image *collision_image) {
+    (void)aseprite_path;
+
+    if (!primitives_png_path || !collision_image || !collision_image->data)
         return false;
 
-    const char *tmp_png = "resources/visual/layers/.editor-collision-tmp.png";
-    if (!ExportImage(*collision_image, tmp_png)) {
-        TraceLog(LOG_WARNING, "act_export: failed to write temp png");
+    if (!ExportImage(*collision_image, primitives_png_path)) {
+        TraceLog(LOG_WARNING, "act_export: failed to write %s", primitives_png_path);
         return false;
     }
 
-    if (!act_export_write_collision_layer(aseprite_path, tmp_png))
-        return false;
-
-    if (!act_export_run_level_export(aseprite_path))
-        return false;
-
+    TraceLog(LOG_INFO, "act_export: wrote %s (game loads this; .aseprite is not modified in-game)",
+             primitives_png_path);
     return true;
 }

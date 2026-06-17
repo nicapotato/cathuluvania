@@ -1259,6 +1259,10 @@ static void game_draw_world(Game *g) {
     if (g->level.tex_base.id != 0)
         DrawTexture(g->level.tex_base, 0, 0, WHITE);
 
+    level_draw_primitive_overlay(&g->level, g->camera.x, g->camera.y, view_w, view_h,
+                                 (Color){ 255, 255, 255, 140 },
+                                 (Color){ 255, 255, 255, 200 });
+
     if (g->debug_mode) {
         game_draw_debug_collision(g, view_w, view_h);
         game_draw_debug_rooms(g);
@@ -1606,7 +1610,7 @@ bool game_create_new_act(Game *g) {
         return false;
 
     snprintf(label, sizeof(label), "New %s", id);
-    if (!act_create_empty_act(id, label, ACT_CREATE_DEFAULT_WIDTH, ACT_CREATE_DEFAULT_HEIGHT)) {
+    if (!act_create_from_template(id, label)) {
         TraceLog(LOG_WARNING, "game_create_new_act: failed to create act files");
         return false;
     }

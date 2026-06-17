@@ -72,13 +72,14 @@ WIN_EXE = $(WIN_RELEASE_DIR)/$(APP_NAME).exe
 SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/tile_config.c \
        $(SRC_DIR)/tile_catalog.c $(SRC_DIR)/gameplay_grid.c $(SRC_DIR)/gameplay_io.c \
        $(SRC_DIR)/editor.c $(SRC_DIR)/act_registry.c $(SRC_DIR)/act_create.c \
-       $(SRC_DIR)/act_export.c $(SRC_DIR)/platform_path.c \
+       $(SRC_DIR)/act_export.c $(SRC_DIR)/layer_composite.c $(SRC_DIR)/platform_path.c \
        external/cjson/cJSON.c
 
 CFLAGS += -Iexternal/cjson
 
 ASEPRITE ?= $(shell if [ -x /Applications/Aseprite.app/Contents/MacOS/aseprite ]; then echo /Applications/Aseprite.app/Contents/MacOS/aseprite; else echo aseprite; fi)
-ACTS = resources/visual/green-act.aseprite resources/visual/dark-act.aseprite
+ACTS = resources/visual/green-act.aseprite resources/visual/dark-act.aseprite \
+       resources/visual/template.aseprite
 EXPORT_SCRIPT = scripts/aesprite/export-act-level.lua
 REGISTRY_SCRIPT = scripts/aesprite/gen-acts-registry.lua
 ACTS_GEN = $(SRC_DIR)/acts.gen.h

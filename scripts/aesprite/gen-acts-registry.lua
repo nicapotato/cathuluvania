@@ -248,7 +248,8 @@ for _, meta in ipairs(metadata_rows) do
 end
 
 for id in pairs(export_by_id) do
-  fail("Export json has no acts_metadata.h entry: " .. id)
+  print("gen-acts-registry: WARN  ignoring export json without acts_metadata.h entry: " .. id)
+  export_by_id[id] = nil
 end
 
 local max_w = 0

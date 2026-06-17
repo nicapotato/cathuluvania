@@ -1,12 +1,12 @@
--- write-collision-layer.lua — patch collision/primitives layer from a PNG, save .aseprite
+-- write-collision-layer.lua — patch the editor collision layer (primitives) from a PNG
 --
 -- Usage:
 --   aseprite -b -script-param aseprite=<path> -script-param png=<path> \
 --     [-script-param layer=primitives] -script scripts/aesprite/write-collision-layer.lua
+--
+-- Writes ONLY to primitives/collision — never base (base holds tile art).
 
-local COLLISION_ALIASES = {
-  "primitives", "collision", "base", "earth-tileset", "earth_tileset",
-}
+local EDIT_LAYER_ALIASES = { "primitives", "collision" }
 
 local function fail(msg)
   print("write-collision: " .. msg)
@@ -22,11 +22,7 @@ end
 local function nameMatches(name, aliases)
   local n = normalizeName(name)
   for _, alias in ipairs(aliases) do
-    local a = normalizeName(alias)
-    if n == a then
-      return true
-    end
-    if a == "base" and (n == "earth-tileset" or n == "earth_tileset") then
+    if n == normalizeName(alias) then
       return true
     end
   end
@@ -48,7 +44,7 @@ local function collectLayers(layers, out)
   end
 end
 
-local function findLayerByAliases(layers, aliases, preferred)
+local function findEditLayer(layers, preferred)
   if preferred and preferred ~= "" then
     for _, layer in ipairs(layers) do
       if not isGroupLayer(layer) and normalizeName(layer.name) == normalizeName(preferred) then
@@ -57,7 +53,7 @@ local function findLayerByAliases(layers, aliases, preferred)
     end
   end
   for _, layer in ipairs(layers) do
-    if not isGroupLayer(layer) and nameMatches(layer.name, aliases) then
+    if not isGroupLayer(layer) and nameMatches(layer.name, EDIT_LAYER_ALIASES) then
       return layer
     end
   end
@@ -69,7 +65,7 @@ local png_path = app.params and app.params.png
 local layer_pref = app.params and app.params.layer
 
 if not ase_path or ase_path == "" or not png_path or png_path == "" then
-  fail("usage: -script-param aseprite=<path> -script-param png=<path> [-script-param layer=name]")
+  fail("usage: -script-param aseprite=<path> -script-param png=<path> [-script-param layer=primitives]")
 end
 
 if not app.fs.isFile(ase_path) then
@@ -92,10 +88,10 @@ end
 local all_layers = {}
 collectLayers(spr.layers, all_layers)
 
-local layer = findLayerByAliases(all_layers, COLLISION_ALIASES, layer_pref)
+local layer = findEditLayer(all_layers, layer_pref or "primitives")
 if not layer then
-  spr:close()
-  fail("no collision layer found (primitives, collision, base, …)")
+  layer = spr:newLayer("primitives")
+  print("write-collision: created empty 'primitives' layer")
 end
 
 local spr_w = spr.width
@@ -149,6 +145,9 @@ else
 end
 
 local layer_name = layer.name
-spr:saveAs(ase_path)
+local saved = pcall(function() spr:save() end)
+if not saved then
+  spr:saveAs(ase_path)
+end
 spr:close()
 print("write-collision: updated layer '" .. layer_name .. "' in " .. ase_path)

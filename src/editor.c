@@ -5,6 +5,7 @@
 #include "act_create.h"
 #include "gameplay_grid.h"
 #include "level.h"
+#include "act_registry.h"
 #include "tile_catalog.h"
 
 #include <math.h>
@@ -223,6 +224,7 @@ void editor_enter(Game *g) {
 
     EditorState *editor = &g->editor;
     editor->active = true;
+    editor->tool = EDITOR_TOOL_BRUSH;
     editor->saved_camera_x = g->camera.x;
     editor->saved_camera_y = g->camera.y;
     editor->mouse_down = false;
@@ -266,17 +268,13 @@ static void editor_save(Game *g) {
     bool ok_collision = true;
 
     if (g->level.collision_dirty) {
-        if (g->level.aseprite_path[0] == '\0') {
-            TraceLog(LOG_WARNING, "Editor: no .aseprite path — collision edits saved in memory only");
+        if (g->level.act_id[0] == '\0') {
+            TraceLog(LOG_WARNING, "Editor: no act id — collision not saved");
             ok_collision = false;
         } else {
             ok_collision = level_save_collision_to_aseprite(&g->level);
-            if (ok_collision) {
-                act_registry_reload(&g->act_registry);
-                const ActDesc *act = act_registry_get(&g->act_registry, g->active_act_index);
-                if (act)
-                    level_reload_visuals(&g->level, act);
-            }
+            if (ok_collision)
+                level_sync_from_collision_image(&g->level, catalog);
         }
     }
 
@@ -414,9 +412,13 @@ void editor_draw_world(const Game *g) {
     if (r1 >= level->rows)
         r1 = level->rows - 1;
 
+    level_draw_primitive_overlay(level, g->camera.x, g->camera.y, (float)VIEW_WIDTH,
+                                 (float)VIEW_HEIGHT, (Color){ 255, 255, 255, 200 },
+                                 (Color){ 255, 255, 255, 255 });
+
     for (int r = r0; r <= r1; r++) {
         for (int c = c0; c <= c1; c++) {
-            if (!level_cell_is_solid(level, c, r))
+            if (!level_cell_is_solid(level, c, r) || level_cell_is_primitive_only(level, c, r))
                 continue;
 
             float x = (float)(c * TILE_SIZE);
@@ -447,6 +449,9 @@ void editor_draw_world(const Game *g) {
     if (editor_world_to_cell(level, world, &hover_col, &hover_row)) {
         float x = (float)(hover_col * TILE_SIZE);
         float y = (float)(hover_row * TILE_SIZE);
+        if (g->editor.tool == EDITOR_TOOL_BRUSH && !level_cell_is_solid(level, hover_col, hover_row)) {
+            DrawRectangle((int)x, (int)y, TILE_SIZE, TILE_SIZE, (Color){ 255, 255, 255, 80 });
+        }
         DrawRectangleLinesEx((Rectangle){ x, y, (float)TILE_SIZE, (float)TILE_SIZE }, 1.0f,
                              (Color){ 255, 255, 255, 200 });
     }
@@ -473,14 +478,16 @@ void editor_draw_ui(const Game *g) {
     const EditorState *editor = &g->editor;
     const Level *level = &g->level;
 
-    DrawRectangle(0, 0, GetScreenWidth(), 40, (Color){ 20, 20, 40, 230 });
+    DrawRectangle(0, 0, GetScreenWidth(), 52, (Color){ 20, 20, 40, 230 });
     const char *dirty = editor->dirty ? " *" : "";
     const char *col_dirty = level->collision_dirty ? " [collision]" : "";
-    DrawText(TextFormat("EDITOR | %s%s%s | Tab/Esc exit | Ctrl+S save to .aseprite",
+    DrawText(TextFormat("EDITOR | %s%s%s | Tab/Esc exit | Ctrl+S save",
                         editor_tool_name(editor->tool), dirty, col_dirty),
              8, 8, EDITOR_UI_FONT, RAYWHITE);
-    DrawText("S select+tag | B paint collision | E erase | Ctrl+N new act | WASD pan | collision from Aseprite",
+    DrawText("B paint | E erase | S tag | Ctrl+S -> layers/<act>-primitives.png | WASD pan",
              8, 24, 10, LIGHTGRAY);
+    DrawText("White blocks = editor collision (not tile art). Player can stand on them after Tab exit.",
+             8, 38, 10, (Color){ 200, 200, 200, 255 });
 
     if (catalog && editor->selection_count > 0) {
         Rectangle panel;

@@ -39,9 +39,11 @@ typedef struct Level {
     char gameplay_path[LEVEL_GAMEPLAY_PATH_LEN];
     char aseprite_path[LEVEL_ASEPRITE_PATH_LEN];
     char collision_png_path[LEVEL_GAMEPLAY_PATH_LEN];
+    char primitives_png_path[LEVEL_GAMEPLAY_PATH_LEN];
+    Image collision_baked;
     Image collision_edit;
     bool collision_dirty;
-    const char *act_id;
+    char act_id[ACT_DESC_ID_LEN];
     Texture2D tex_background;
     Texture2D tex_base;
     Vector2 spawn;
@@ -75,13 +77,18 @@ void level_sync_collision_from_gameplay(Level *level, const TileCatalog *catalog
 bool level_save_gameplay(const Level *level, const TileCatalog *catalog);
 
 bool level_cell_is_solid(const Level *level, int col, int row);
+bool level_cell_is_primitive_only(const Level *level, int col, int row);
+void level_draw_primitive_overlay(const Level *level, float cam_x, float cam_y, float view_w,
+                                  float view_h, Color fill, Color outline);
 uint32_t level_cell_effective_flags(const Level *level, const TileCatalog *catalog, int col, int row);
 bool level_has_tag_override(const Level *level, int col, int row);
 
 void level_collision_paint_cell(Level *level, int col, int row);
 void level_collision_erase_cell(Level *level, int col, int row);
 void level_sync_from_collision_image(Level *level, const TileCatalog *catalog);
+void level_reload_collision_edit(Level *level, const TileCatalog *catalog);
 void level_refresh_collision_texture(Level *level, const TileCatalog *catalog);
+void level_rebind_act(Level *level, const ActDesc *act);
 bool level_reload_visuals(Level *level, const ActDesc *act);
 bool level_save_collision_to_aseprite(Level *level);
 

@@ -12,5 +12,7 @@ bool layer_composite_bake_layer_image(const ase_t *ase, int frame_index,
 bool layer_composite_bake_layer_texture(const ase_t *ase, int frame_index,
                                         const char *layer_name, Texture2D *out_texture);
 bool layer_composite_image_has_content(const Image *image);
+bool layer_composite_bake_edit_layer_from_file(const char *ase_path, int frame_index,
+                                               Image *out_image);
 
 #endif

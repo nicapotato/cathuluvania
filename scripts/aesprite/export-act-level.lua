@@ -8,7 +8,8 @@
 --
 -- Expected layers:
 --   backdrop  : background, parallax, parralax
---   collision : collision, base, earth-tileset, earth_tileset
+--   render    : base, earth-tileset (tile art → <id>.png, also opaque pixels = solid)
+--   editor    : primitives, collision (in-game B/E tools write primitives only)
 --
 -- Expected slices (document-level):
 --   r-<n>              connected room; userdata optional: name:"..."
@@ -19,7 +20,7 @@
 --
 -- Tunnel/teleport spawn Y: slice bottom minus SPAWN_CENTER_OFFSET_FROM_SLICE_BOTTOM (player center).
 -- Output under resources/visual/layers/:
---   <id>-background.png, <id>.png, <id>.export.json
+--   <id>-background.png, <id>.png, <id>-primitives.png, <id>.export.json
 
 local SPAWN_CENTER_OFFSET_FROM_SLICE_BOTTOM = 8
 
@@ -42,7 +43,8 @@ local CONFIG = {
 }
 
 local BACKGROUND_ALIASES = { "background", "parallax", "parralax" }
-local COLLISION_ALIASES = { "primitives", "collision", "base", "earth-tileset", "earth_tileset" }
+local RENDER_ALIASES = { "base", "earth-tileset", "earth_tileset" }
+local PRIMITIVES_ALIASES = { "primitives", "collision" }
 
 local function normalizeName(name)
   local n = string.lower(name or "")
@@ -493,6 +495,7 @@ end
 local stem = fileStem(spr.filename)
 local bgName = stem .. "-background.png"
 local collisionName = stem .. ".png"
+local primitivesName = stem .. "-primitives.png"
 local exportJsonName = stem .. ".export.json"
 local outDir = app.fs.joinPath(app.fs.filePath(spr.filename), CONFIG.outputSubdir)
 local projectRoot = projectRootFromSpritePath(spr.filename)
@@ -503,6 +506,7 @@ end
 
 local bgPath = app.fs.joinPath(outDir, bgName)
 local collisionPath = app.fs.joinPath(outDir, collisionName)
+local primitivesPath = app.fs.joinPath(outDir, primitivesName)
 local exportJsonPath = app.fs.joinPath(outDir, exportJsonName)
 
 local allLayers = {}
@@ -516,8 +520,13 @@ local okBg, bgMsg = exportPass(spr, allLayers, visBackup, BACKGROUND_ALIASES, bg
 table.insert(results, (okBg and "OK  " or "FAIL") .. "  " .. bgName .. (okBg and "" or " — " .. bgMsg))
 
 saveVisibility(spr.layers, visBackup)
-local okCol, colMsg = exportPass(spr, allLayers, visBackup, COLLISION_ALIASES, collisionPath)
+local okCol, colMsg = exportPass(spr, allLayers, visBackup, RENDER_ALIASES, collisionPath)
 table.insert(results, (okCol and "OK  " or "FAIL") .. "  " .. collisionName .. (okCol and "" or " — " .. colMsg))
+
+saveVisibility(spr.layers, visBackup)
+local okPrim, primMsg = exportPass(spr, allLayers, visBackup, PRIMITIVES_ALIASES, primitivesPath)
+table.insert(results, (okPrim and "OK  " or "SKIP") .. "  " .. primitivesName
+  .. (okPrim and "" or " — " .. primMsg))
 
 restoreVisibility(spr.layers, visBackup)
 

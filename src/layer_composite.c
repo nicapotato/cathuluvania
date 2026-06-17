@@ -257,3 +257,25 @@ bool layer_composite_bake_layer_texture(const ase_t *ase, int frame_index,
     SetTextureFilter(*out_texture, TEXTURE_FILTER_POINT);
     return true;
 }
+
+bool layer_composite_bake_edit_layer_from_file(const char *ase_path, int frame_index,
+                                               Image *out_image) {
+    if (!ase_path || !out_image)
+        return false;
+
+    ase_t *ase = cute_aseprite_load_from_file(ase_path, NULL);
+    if (!ase)
+        return false;
+
+    static const char *candidates[] = { "primitives", "collision" };
+    for (int i = 0; i < 2; i++) {
+        if (layer_composite_bake_layer_image(ase, frame_index, candidates[i], out_image)) {
+            cute_aseprite_free(ase);
+            return true;
+        }
+    }
+
+    *out_image = GenImageColor(ase->w, ase->h, BLANK);
+    cute_aseprite_free(ase);
+    return out_image->data != NULL;
+}

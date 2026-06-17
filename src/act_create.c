@@ -1,10 +1,10 @@
 #include "act_create.h"
 
+#include "act_export.h"
 #include "../../external/cjson/cJSON.h"
 #include "gameplay_io.h"
 #include "main.h"
 #include "raylib.h"
-#include "tile_catalog.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,39 +13,36 @@
 
 #define ACT_MANIFEST_PATH "resources/acts.manifest.json"
 #define EXPORT_DIR "resources/visual/layers"
-#define TILESET_TEMPLATE "resources/visual/green-act.aseprite.bk"
-#define CREATE_ACT_SCRIPT "scripts/aesprite/create-act.lua"
 
 static bool file_exists(const char *path) {
     struct stat st;
     return path && stat(path, &st) == 0;
 }
 
-static bool ensure_dir(const char *path) {
-    struct stat st;
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
-        return true;
-    return mkdir(path, 0755) == 0 || (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
-}
-
-static bool write_png_solid(const char *path, int width, int height, Color color) {
-    Image img = GenImageColor(width, height, color);
-    if (!img.data)
+static bool copy_file(const char *src, const char *dst) {
+    FILE *in = fopen(src, "rb");
+    if (!in)
         return false;
 
-    bool ok = ExportImage(img, path);
-    UnloadImage(img);
-    return ok;
-}
-
-static bool write_png_transparent(const char *path, int width, int height) {
-    Image img = GenImageColor(width, height, BLANK);
-    if (!img.data)
+    FILE *out = fopen(dst, "wb");
+    if (!out) {
+        fclose(in);
         return false;
+    }
 
-    bool ok = ExportImage(img, path);
-    UnloadImage(img);
-    return ok;
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            fclose(in);
+            fclose(out);
+            return false;
+        }
+    }
+
+    fclose(in);
+    fclose(out);
+    return true;
 }
 
 static bool manifest_has_id(const char *id) {
@@ -107,72 +104,50 @@ bool act_create_generate_id(char *out_id, int out_cap) {
     return false;
 }
 
-static bool write_export_json(const char *id, int width, int height) {
+static bool read_export_dimensions(const char *id, int *out_width, int *out_height) {
+    if (!id || !out_width || !out_height)
+        return false;
+
     char path[256];
     snprintf(path, sizeof(path), "%s/%s.export.json", EXPORT_DIR, id);
 
-    cJSON *root = cJSON_CreateObject();
-    cJSON *rooms = cJSON_CreateArray();
-    cJSON *saves = cJSON_CreateArray();
-    cJSON *teleports = cJSON_CreateArray();
-    cJSON *tunnels = cJSON_CreateArray();
-    if (!root || !rooms || !saves || !teleports || !tunnels) {
-        cJSON_Delete(root);
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return false;
+
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len <= 0) {
+        fclose(f);
         return false;
     }
 
-    char bg_path[256];
-    char col_path[256];
-    snprintf(bg_path, sizeof(bg_path), "%s/%s-background.png", EXPORT_DIR, id);
-    snprintf(col_path, sizeof(col_path), "%s/%s.png", EXPORT_DIR, id);
-
-    cJSON_AddStringToObject(root, "id", id);
-    cJSON_AddNumberToObject(root, "tile_size", TILE_SIZE);
-    cJSON_AddNumberToObject(root, "width", width);
-    cJSON_AddNumberToObject(root, "height", height);
-    cJSON_AddStringToObject(root, "background_png", bg_path);
-    cJSON_AddStringToObject(root, "collision_png", col_path);
-
-    cJSON *room = cJSON_CreateObject();
-    cJSON_AddStringToObject(room, "id", "r-1");
-    cJSON_AddStringToObject(room, "name", "Start");
-    cJSON_AddBoolToObject(room, "isolated", false);
-    cJSON_AddNumberToObject(room, "x", 0);
-    cJSON_AddNumberToObject(room, "y", 0);
-    cJSON_AddNumberToObject(room, "w", width);
-    cJSON_AddNumberToObject(room, "h", height);
-    cJSON_AddNumberToObject(room, "view_y", 0);
-    cJSON_AddNumberToObject(room, "view_h", height);
-    cJSON_AddItemToArray(rooms, room);
-
-    cJSON *save = cJSON_CreateObject();
-    cJSON_AddNumberToObject(save, "index", 0);
-    cJSON_AddNumberToObject(save, "x", width / 2);
-    cJSON_AddNumberToObject(save, "y", height - 20);
-    cJSON_AddStringToObject(save, "room", "r-1");
-    cJSON_AddItemToArray(saves, save);
-
-    cJSON_AddItemToObject(root, "rooms", rooms);
-    cJSON_AddItemToObject(root, "saves", saves);
-    cJSON_AddItemToObject(root, "teleports", teleports);
-    cJSON_AddItemToObject(root, "tunnels", tunnels);
-
-    char *text = cJSON_Print(root);
-    cJSON_Delete(root);
-    if (!text)
-        return false;
-
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        free(text);
+    char *text = (char *)malloc((size_t)len + 1);
+    if (!text) {
+        fclose(f);
         return false;
     }
 
-    fputs(text, f);
-    fputc('\n', f);
+    fread(text, 1, (size_t)len, f);
+    text[len] = '\0';
     fclose(f);
+
+    cJSON *root = cJSON_Parse(text);
     free(text);
-    return true;
+    if (!root)
+        return false;
+
+    cJSON *width = cJSON_GetObjectItemCaseSensitive(root, "width");
+    cJSON *height = cJSON_GetObjectItemCaseSensitive(root, "height");
+    bool ok = cJSON_IsNumber(width) && cJSON_IsNumber(height);
+    if (ok) {
+        *out_width = width->valueint;
+        *out_height = height->valueint;
+    }
+
+    cJSON_Delete(root);
+    return ok;
 }
 
 static bool write_empty_gameplay_json(const char *id, int width, int height) {
@@ -210,31 +185,34 @@ static bool write_empty_gameplay_json(const char *id, int width, int height) {
     return true;
 }
 
-bool act_create_empty_act(const char *id, const char *label, int width, int height) {
-    if (!id || !label || width <= 0 || height <= 0 || width % TILE_SIZE != 0 || height % TILE_SIZE != 0)
+bool act_create_from_template(const char *id, const char *label) {
+    if (!id || !label || id[0] == '\0')
         return false;
 
-    if (!ensure_dir("resources/visual") || !ensure_dir(EXPORT_DIR))
-        return false;
-
-    char bg_path[256];
-    char col_path[256];
-    snprintf(bg_path, sizeof(bg_path), "%s/%s-background.png", EXPORT_DIR, id);
-    snprintf(col_path, sizeof(col_path), "%s/%s.png", EXPORT_DIR, id);
-
-    Color sky = (Color){ 135, 206, 235, 255 };
-    if (!write_png_solid(bg_path, width, height, sky)) {
-        TraceLog(LOG_WARNING, "act_create: failed to write %s", bg_path);
+    if (!file_exists(ACT_TEMPLATE_ASEPRITE)) {
+        TraceLog(LOG_WARNING, "act_create: template missing: %s", ACT_TEMPLATE_ASEPRITE);
         return false;
     }
 
-    if (!write_png_transparent(col_path, width, height)) {
-        TraceLog(LOG_WARNING, "act_create: failed to write %s", col_path);
+    char dst_ase[256];
+    snprintf(dst_ase, sizeof(dst_ase), "resources/visual/%s.aseprite", id);
+
+    if (!copy_file(ACT_TEMPLATE_ASEPRITE, dst_ase)) {
+        TraceLog(LOG_WARNING, "act_create: failed to copy template to %s", dst_ase);
         return false;
     }
 
-    if (!write_export_json(id, width, height))
+    if (!act_export_run_level_export(dst_ase)) {
+        TraceLog(LOG_WARNING, "act_create: export failed for %s", dst_ase);
         return false;
+    }
+
+    int width = 0;
+    int height = 0;
+    if (!read_export_dimensions(id, &width, &height)) {
+        TraceLog(LOG_WARNING, "act_create: failed to read export dimensions for %s", id);
+        return false;
+    }
 
     if (!write_empty_gameplay_json(id, width, height))
         return false;
@@ -244,33 +222,6 @@ bool act_create_empty_act(const char *id, const char *label, int width, int heig
         return false;
     }
 
-    act_create_try_aseprite_file(id, width, height);
-    return true;
-}
-
-static const char *find_aseprite_cli(void) {
-    if (file_exists("/Applications/Aseprite.app/Contents/MacOS/Aseprite"))
-        return "/Applications/Aseprite.app/Contents/MacOS/Aseprite";
-    return "aseprite";
-}
-
-bool act_create_try_aseprite_file(const char *id, int width, int height) {
-    if (!id)
-        return false;
-
-    const char *aseprite = find_aseprite_cli();
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" -b -script-param act_id=%s -script-param width=%d -script-param height=%d "
-             "-script-param template=%s -script \"%s\" 2>/dev/null",
-             aseprite, id, width, height, TILESET_TEMPLATE, CREATE_ACT_SCRIPT);
-
-    int rc = system(cmd);
-    if (rc != 0) {
-        TraceLog(LOG_WARNING, "act_create: Aseprite not available or create-act.lua failed (rc=%d)", rc);
-        return false;
-    }
-
-    TraceLog(LOG_INFO, "act_create: wrote resources/visual/%s.aseprite", id);
+    TraceLog(LOG_INFO, "act_create: created %s from template (%dx%d)", id, width, height);
     return true;
 }

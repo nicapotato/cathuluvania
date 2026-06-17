@@ -8,7 +8,7 @@
 #define MAX_ACT_WIDTH  2880
 #define MAX_ACT_HEIGHT 1344
 #define MAX_ROOM_HEIGHT 694
-#define ACT_COUNT      2
+#define ACT_COUNT      3
 #define MAX_ROOMS_PER_ACT 16
 #define MAX_TUNNELS_PER_ACT 16
 #define MAX_TELEPORTS_PER_ACT 16
@@ -129,6 +129,29 @@ static const TeleportDef ACT_dark_act_TELEPORTS[5] = {
     { .id = "teleport-r1-a", .room_id = "r-1", .link_id = "teleport-ir1-a", .name = "Teleport to Isolated Room 1", .x = 48.0f, .y = 288.0f, .w = 16.0f, .h = 16.0f, .spawn_x = 56.0f, .spawn_y = 296.0f }
 };
 
+static const SavePointDef ACT_template_SAVES[1] = {
+    { .index = 0, .x = 80.0f, .y = 335.0f, .room_id = "r-1" }
+};
+
+static const RoomDef ACT_template_ROOMS[4] = {
+    { .id = "ir-1", .name = "Isolated Room 1", .isolated = true, .x = 50.0f, .y = 512.0f, .w = 288.0f, .h = 241.0f, .view_y = 512.0f, .view_h = 241.0f },
+    { .id = "ir-2", .name = "Isolated Room 2", .isolated = true, .x = 50.0f, .y = 783.0f, .w = 288.0f, .h = 225.0f, .view_y = 783.0f, .view_h = 225.0f },
+    { .id = "r-1", .name = "Act Start", .isolated = false, .x = 49.0f, .y = 176.0f, .w = 611.0f, .h = 208.0f, .view_y = 176.0f, .view_h = 208.0f },
+    { .id = "r-2", .name = NULL, .isolated = false, .x = 760.0f, .y = 172.0f, .w = 306.0f, .h = 298.0f, .view_y = 172.0f, .view_h = 298.0f }
+};
+
+static const TunnelDef ACT_template_TUNNELS[1] = {
+    { .id = "door-1", .room_a_id = "r-1", .room_b_id = "r-2", .x = 641.0f, .y = 289.0f, .w = 160.0f, .h = 31.0f, .spawn_ax = 650.5f, .spawn_ay = 312.0f, .spawn_bx = 780.5f, .spawn_by = 312.0f }
+};
+
+static const TeleportDef ACT_template_TELEPORTS[5] = {
+    { .id = "teleport-ir1-a", .room_id = "ir-1", .link_id = "teleport-r1-a", .name = "Teleport to Start", .x = 65.0f, .y = 720.0f, .w = 16.0f, .h = 16.0f, .spawn_x = 73.0f, .spawn_y = 728.0f },
+    { .id = "teleport-ir1-b", .room_id = "ir-1", .link_id = "teleport-ir2-a", .name = "Teleport to Isolated Room 2", .x = 306.0f, .y = 720.0f, .w = 16.0f, .h = 16.0f, .spawn_x = 314.0f, .spawn_y = 728.0f },
+    { .id = "teleport-ir2-a", .room_id = "ir-2", .link_id = "teleport-ir1-b", .name = "Teleport to Isolated Room 1", .x = 65.0f, .y = 848.0f, .w = 16.0f, .h = 16.0f, .spawn_x = 73.0f, .spawn_y = 856.0f },
+    { .id = "teleport-ir2-b", .room_id = "ir-2", .link_id = "teleport-r1-a", .name = "Teleport to Start", .x = 306.0f, .y = 832.0f, .w = 16.0f, .h = 16.0f, .spawn_x = 314.0f, .spawn_y = 840.0f },
+    { .id = "teleport-r1-a", .room_id = "r-1", .link_id = "teleport-ir1-a", .name = "Teleport to Isolated Room 1", .x = 66.0f, .y = 272.0f, .w = 16.0f, .h = 16.0f, .spawn_x = 74.0f, .spawn_y = 280.0f }
+};
+
 static const ActDef ACTS[ACT_COUNT] = {
     {
         .id = "green-act",
@@ -162,6 +185,23 @@ static const ActDef ACTS[ACT_COUNT] = {
         .tunnels = ACT_dark_act_TUNNELS,
         .tunnel_count = 8,
         .teleports = ACT_dark_act_TELEPORTS,
+        .teleport_count = 5,
+    },
+    {
+        .id = "template",
+        .label = "Template",
+        .width = 2258, .height = 1008,
+        .cols = 141, .rows = 63,
+        .background_png = "resources/visual/layers/template-background.png",
+        .collision_png = "resources/visual/layers/template.png",
+        .gameplay_json = "resources/visual/layers/template.gameplay.json",
+        .saves = ACT_template_SAVES,
+        .save_count = 1,
+        .rooms = ACT_template_ROOMS,
+        .room_count = 4,
+        .tunnels = ACT_template_TUNNELS,
+        .tunnel_count = 1,
+        .teleports = ACT_template_TELEPORTS,
         .teleport_count = 5,
     }
 };
