@@ -1,0 +1,12 @@
+{
+  "flags": [
+    { "id": "collision", "label": "Collision" },
+    { "id": "slippery", "label": "Slippery" },
+    { "id": "climb", "label": "Climbable" }
+  ],
+  "types": [
+    { "id": "solid", "label": "Solid", "color": "#000000", "flags": ["collision"] },
+    { "id": "ice", "label": "Ice", "color": "#88CCFF", "flags": ["collision", "slippery"] },
+    { "id": "climb_wall", "label": "Climb Wall", "color": "#FF8800", "flags": ["collision", "climb"] }
+  ]
+}

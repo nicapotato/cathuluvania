@@ -42,7 +42,7 @@ local CONFIG = {
 }
 
 local BACKGROUND_ALIASES = { "background", "parallax", "parralax" }
-local COLLISION_ALIASES = { "collision", "base", "earth-tileset", "earth_tileset" }
+local COLLISION_ALIASES = { "primitives", "collision", "base", "earth-tileset", "earth_tileset" }
 
 local function normalizeName(name)
   local n = string.lower(name or "")

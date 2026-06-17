@@ -17,7 +17,12 @@ LDFLAGS += -s USE_GLFW=3 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s TOTAL_MEMORY=128M
 LDFLAGS += --shell-file $(SRC_DIR)/shell.html
 LDFLAGS += --preload-file resources/
 
-SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/tile_config.c \
+       $(SRC_DIR)/tile_catalog.c $(SRC_DIR)/gameplay_grid.c $(SRC_DIR)/gameplay_io.c \
+       $(SRC_DIR)/editor.c $(SRC_DIR)/act_registry.c $(SRC_DIR)/act_create.c \
+       $(SRC_DIR)/act_export.c $(SRC_DIR)/platform_path.c external/cjson/cJSON.c
+
+CFLAGS += -Iexternal/cjson
 
 VERSION := $(shell grep '^VERSION=' project.conf 2>/dev/null | cut -d= -f2)
 ifeq ($(VERSION),)

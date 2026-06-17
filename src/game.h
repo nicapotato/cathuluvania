@@ -2,6 +2,8 @@
 #define GAME_H
 
 #include "acts.h"
+#include "act_registry.h"
+#include "editor.h"
 #include "level.h"
 #include <stdbool.h>
 
@@ -42,12 +44,15 @@ typedef struct Game {
     RenderTexture2D target;
     bool target_loaded;
     bool running;
+    ActRegistry act_registry;
     int active_act_index;
     bool act_menu_open;
     bool save_menu_open;
     bool map_open;
     bool debug_mode;
     int debug_save_index;
+    bool editor_mode;
+    EditorState editor;
     TransitionPhase transition;
     float transition_alpha;
     float player_pan_from_x;
@@ -66,6 +71,7 @@ typedef struct Game {
 
 bool game_new(Game **out);
 void game_free(Game **game);
+bool game_create_new_act(Game *g);
 bool game_run(Game *game);
 
 #endif

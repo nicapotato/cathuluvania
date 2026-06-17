@@ -1,9 +1,23 @@
 #include "level.h"
+#include "act_export.h"
+#include "gameplay_io.h"
+#include "tile_catalog.h"
+
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+static bool file_exists(const char *path) {
+    struct stat st;
+    return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+void level_sync_collision_from_gameplay(Level *level, const TileCatalog *catalog) {
+    level_sync_from_collision_image(level, catalog);
+}
 
 static bool cell_opaque_bounds(const Image *image, int col, int row, int *out_min_y, int *out_max_y) {
     int x0 = col * TILE_SIZE;
@@ -35,20 +49,109 @@ static bool cell_opaque_bounds(const Image *image, int col, int row, int *out_mi
     return true;
 }
 
-static void level_build_collision_from_image(Level *level, const Image *image) {
+
+bool level_cell_is_solid(const Level *level, int col, int row) {
+    if (!level || !level->loaded)
+        return false;
+    return level_get_tile(level, col, row) != TILE_EMPTY;
+}
+
+bool level_has_tag_override(const Level *level, int col, int row) {
+    const GameplayCell *cell = gameplay_grid_get(&level->gameplay, col, row);
+    return cell && cell->has_override;
+}
+
+uint32_t level_cell_effective_flags(const Level *level, const TileCatalog *catalog, int col, int row) {
+    if (!level_cell_is_solid(level, col, row))
+        return 0;
+
+    const GameplayCell *cell = gameplay_grid_get(&level->gameplay, col, row);
+    if (cell && cell->has_override)
+        return cell->flags_override;
+
+    int solid_index = tile_catalog_find_type_index(catalog, "solid");
+    if (solid_index >= 0) {
+        const TileTypeDef *type = tile_catalog_get_type(catalog, solid_index);
+        if (type)
+            return type->default_flags;
+    }
+    return TILE_FLAG_COLLISION;
+}
+
+void level_sync_from_collision_image(Level *level, const TileCatalog *catalog) {
+    if (!level || !catalog || !level->tiles || !level->tile_flags || !level->surface_y)
+        return;
+    if (!level->collision_edit.data)
+        return;
+
+    const Image *image = &level->collision_edit;
+    int solid_index = tile_catalog_find_type_index(catalog, "solid");
+    const TileTypeDef *solid_type = solid_index >= 0 ? tile_catalog_get_type(catalog, solid_index) : NULL;
+    uint32_t default_flags = solid_type ? solid_type->default_flags : TILE_FLAG_COLLISION;
+
     for (int r = 0; r < level->rows; r++) {
         for (int c = 0; c < level->cols; c++) {
             int idx = r * level->cols + c;
+            level->tiles[idx] = TILE_EMPTY;
+            level->tile_flags[idx] = 0;
+            level->surface_y[idx] = -1;
+
             int min_y, max_y;
-            if (cell_opaque_bounds(image, c, r, &min_y, &max_y)) {
-                level->tiles[idx] = TILE_SOLID;
-                level->surface_y[idx] = min_y;
-            } else {
-                level->tiles[idx] = TILE_EMPTY;
-                level->surface_y[idx] = -1;
-            }
+            if (!cell_opaque_bounds(image, c, r, &min_y, &max_y))
+                continue;
+
+            level->tiles[idx] = TILE_SOLID;
+            level->surface_y[idx] = min_y;
+
+            const GameplayCell *cell = gameplay_grid_get(&level->gameplay, c, r);
+            if (cell && cell->has_override)
+                level->tile_flags[idx] = cell->flags_override;
+            else
+                level->tile_flags[idx] = default_flags;
         }
     }
+}
+
+void level_collision_paint_cell(Level *level, int col, int row) {
+    if (!level || !level->collision_edit.data)
+        return;
+    if (col < 0 || col >= level->cols || row < 0 || row >= level->rows)
+        return;
+
+    ImageDrawRectangle(&level->collision_edit, col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE,
+                       (Color){ 0, 0, 0, 255 });
+    level->collision_dirty = true;
+}
+
+void level_collision_erase_cell(Level *level, int col, int row) {
+    if (!level || !level->collision_edit.data)
+        return;
+    if (col < 0 || col >= level->cols || row < 0 || row >= level->rows)
+        return;
+
+    ImageDrawRectangle(&level->collision_edit, col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE,
+                       BLANK);
+    level->collision_dirty = true;
+}
+
+uint32_t level_get_cell_flags(const Level *level, int col, int row) {
+    if (!level || !level->loaded || !level->tile_flags)
+        return 0;
+    if (col < 0 || col >= level->cols || row < 0 || row >= level->rows)
+        return 0;
+    return level->tile_flags[row * level->cols + col];
+}
+
+bool level_cell_has_flag(const Level *level, int col, int row, uint32_t flag) {
+    return (level_get_cell_flags(level, col, row) & flag) != 0;
+}
+
+bool level_save_gameplay(const Level *level, const TileCatalog *catalog) {
+    if (!level || !catalog || !level->loaded || level->gameplay_path[0] == '\0' || !level->act_id)
+        return false;
+
+    return gameplay_io_save(&level->gameplay, catalog, level->gameplay_path, TILE_SIZE,
+                            level->width, level->height, level->act_id);
 }
 
 static bool level_load_image_file(const char *path, int expected_w, int expected_h, Image *out) {
@@ -306,6 +409,73 @@ static void level_build_room_views(Level *level, const Image *image) {
                                   &level->room_view_h[i]);
 }
 
+void level_refresh_collision_texture(Level *level, const TileCatalog *catalog) {
+    if (!level || !level->collision_edit.data)
+        return;
+
+    if (level->tex_base.id != 0)
+        UnloadTexture(level->tex_base);
+
+    if (!level_image_to_texture(&level->collision_edit, &level->tex_base)) {
+        TraceLog(LOG_WARNING, "level: failed to refresh collision texture");
+        return;
+    }
+
+    level_sync_from_collision_image(level, catalog);
+    level_build_room_views(level, &level->collision_edit);
+}
+
+bool level_save_collision_to_aseprite(Level *level) {
+    if (!level || !level->collision_edit.data || level->aseprite_path[0] == '\0')
+        return false;
+
+    if (!act_export_save_collision(level->aseprite_path, &level->collision_edit))
+        return false;
+
+    level->collision_dirty = false;
+    return true;
+}
+
+bool level_reload_visuals(Level *level, const ActDesc *act) {
+    if (!level || !act)
+        return false;
+
+    const TileCatalog *catalog = tile_catalog_global();
+    if (!catalog)
+        return false;
+
+    if (level->collision_edit.data)
+        UnloadImage(level->collision_edit);
+
+    Image collision = { 0 };
+    if (!level_load_image_file(act->collision_png, act->width, act->height, &collision)) {
+        TraceLog(LOG_WARNING, "level_reload: collision PNG missing: %s", act->collision_png);
+        collision = GenImageColor(act->width, act->height, BLANK);
+    }
+    level->collision_edit = collision;
+    snprintf(level->collision_png_path, sizeof(level->collision_png_path), "%s", act->collision_png);
+
+    if (level->tex_base.id != 0)
+        UnloadTexture(level->tex_base);
+    if (!level_image_to_texture(&level->collision_edit, &level->tex_base))
+        return false;
+
+    level_sync_from_collision_image(level, catalog);
+    level_build_room_views(level, &level->collision_edit);
+
+    if (level->tex_background.id != 0)
+        UnloadTexture(level->tex_background);
+
+    Image background = { 0 };
+    if (level_load_image_file(act->background_png, act->width, act->height, &background)) {
+        if (!level_image_to_texture(&background, &level->tex_background))
+            fprintf(stderr, "Warning: failed to reload background texture\n");
+        UnloadImage(background);
+    }
+
+    return true;
+}
+
 float level_room_view_y(const Level *level, int room_index) {
     if (!level || !level->rooms || room_index < 0 || room_index >= level->room_count)
         return 0.0f;
@@ -373,7 +543,7 @@ LevelZone level_get_active_zone(const Level *level) {
     return zone;
 }
 
-bool level_load(Level *level, const ActDef *act) {
+bool level_load(Level *level, const ActDesc *act) {
     if (!level || !act)
         return false;
 
@@ -406,10 +576,21 @@ bool level_load(Level *level, const ActDef *act) {
         return false;
     }
 
+    level->act_id = act->id;
+    snprintf(level->aseprite_path, sizeof(level->aseprite_path), "%s", act->aseprite_path);
+    snprintf(level->collision_png_path, sizeof(level->collision_png_path), "%s", act->collision_png);
+    if (act->gameplay_json[0]) {
+        snprintf(level->gameplay_path, sizeof(level->gameplay_path), "%s", act->gameplay_json);
+    } else {
+        snprintf(level->gameplay_path, sizeof(level->gameplay_path),
+                 "resources/visual/layers/%s.gameplay.json", act->id);
+    }
+
     size_t cell_count = (size_t)level->cols * (size_t)level->rows;
     level->tiles = calloc(cell_count, sizeof(TileType));
+    level->tile_flags = calloc(cell_count, sizeof(uint32_t));
     level->surface_y = calloc(cell_count, sizeof(int));
-    if (!level->tiles || !level->surface_y) {
+    if (!level->tiles || !level->tile_flags || !level->surface_y) {
         fprintf(stderr, "Failed to allocate tile grid for %s\n", act->id);
         level_free(level);
         return false;
@@ -420,19 +601,37 @@ bool level_load(Level *level, const ActDef *act) {
 
     Image base_image = { 0 };
     if (!level_load_image_file(act->collision_png, act->width, act->height, &base_image)) {
-        fprintf(stderr, "Failed to load collision map: %s\n", act->collision_png);
-        level_free(level);
-        return false;
+        TraceLog(LOG_WARNING, "Collision PNG missing, using empty: %s", act->collision_png);
+        base_image = GenImageColor(act->width, act->height, BLANK);
     }
 
-    level_build_collision_from_image(level, &base_image);
-    level_build_room_views(level, &base_image);
-    if (!level_image_to_texture(&base_image, &level->tex_base)) {
+    const TileCatalog *catalog = tile_catalog_global();
+    if (!catalog) {
+        fprintf(stderr, "Tile catalog not loaded\n");
         UnloadImage(base_image);
         level_free(level);
         return false;
     }
-    UnloadImage(base_image);
+
+    level->collision_edit = base_image;
+
+    if (!gameplay_grid_init(&level->gameplay, level->cols, level->rows)) {
+        level_free(level);
+        return false;
+    }
+
+    if (file_exists(level->gameplay_path)) {
+        if (!gameplay_io_load(&level->gameplay, catalog, level->gameplay_path, level->cols,
+                              level->rows, act->id))
+            fprintf(stderr, "Warning: failed to load gameplay json: %s\n", level->gameplay_path);
+    }
+
+    level_sync_from_collision_image(level, catalog);
+    level_build_room_views(level, &level->collision_edit);
+    if (!level_image_to_texture(&level->collision_edit, &level->tex_base)) {
+        level_free(level);
+        return false;
+    }
 
     Image background_image = { 0 };
     if (level_load_image_file(act->background_png, act->width, act->height, &background_image)) {
@@ -462,9 +661,13 @@ void level_free(Level *level) {
         UnloadTexture(level->tex_background);
     if (level->tex_base.id != 0)
         UnloadTexture(level->tex_base);
+    if (level->collision_edit.data)
+        UnloadImage(level->collision_edit);
     free(level->tiles);
+    free(level->tile_flags);
     free(level->surface_y);
     free(level->room_view_y);
     free(level->room_view_h);
+    gameplay_grid_free(&level->gameplay);
     memset(level, 0, sizeof(*level));
 }

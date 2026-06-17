@@ -55,6 +55,7 @@ typedef struct ActDef {
     int rows;
     const char *background_png;
     const char *collision_png;
+    const char *gameplay_json;
     const SavePointDef *saves;
     int save_count;
     const RoomDef *rooms;
@@ -72,7 +73,7 @@ static const SavePointDef ACT_green_act_SAVES[1] = {
 static const RoomDef ACT_green_act_ROOMS[3] = {
     { .id = "ir-1", .name = "Isolated Room 1", .isolated = true, .x = 0.0f, .y = 512.0f, .w = 288.0f, .h = 241.0f, .view_y = 512.0f, .view_h = 241.0f },
     { .id = "ir-2", .name = "Isolated Room 2", .isolated = true, .x = 0.0f, .y = 783.0f, .w = 288.0f, .h = 225.0f, .view_y = 783.0f, .view_h = 225.0f },
-    { .id = "r-1", .name = "Act Start", .isolated = false, .x = -1.0f, .y = 176.0f, .w = 199.0f, .h = 208.0f, .view_y = 176.0f, .view_h = 208.0f }
+    { .id = "r-1", .name = "Act Start", .isolated = false, .x = -1.0f, .y = 176.0f, .w = 585.0f, .h = 208.0f, .view_y = 176.0f, .view_h = 208.0f }
 };
 
 static const TunnelDef ACT_green_act_TUNNELS[0] = {
@@ -136,6 +137,7 @@ static const ActDef ACTS[ACT_COUNT] = {
         .cols = 138, .rows = 63,
         .background_png = "resources/visual/layers/green-act-background.png",
         .collision_png = "resources/visual/layers/green-act.png",
+        .gameplay_json = "resources/visual/layers/green-act.gameplay.json",
         .saves = ACT_green_act_SAVES,
         .save_count = 1,
         .rooms = ACT_green_act_ROOMS,
@@ -152,6 +154,7 @@ static const ActDef ACTS[ACT_COUNT] = {
         .cols = 180, .rows = 84,
         .background_png = "resources/visual/layers/dark-act-background.png",
         .collision_png = "resources/visual/layers/dark-act.png",
+        .gameplay_json = "resources/visual/layers/dark-act.gameplay.json",
         .saves = ACT_dark_act_SAVES,
         .save_count = 6,
         .rooms = ACT_dark_act_ROOMS,

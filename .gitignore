@@ -4,7 +4,7 @@ obj/
 release/
 *.o
 *.exe
-raylib/
+external/cjson
 external/raylib-master
 Cathuluvania.app/
 Debug

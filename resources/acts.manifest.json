@@ -1,0 +1,12 @@
+{
+	"acts":	[{
+			"id":	"green-act",
+			"label":	"Green Act"
+		}, {
+			"id":	"dark-act",
+			"label":	"Dark Act"
+		}, {
+			"id":	"new-act-001",
+			"label":	"New new-act-001"
+		}]
+}

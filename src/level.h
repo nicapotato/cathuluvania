@@ -2,12 +2,18 @@
 #define LEVEL_H
 
 #include "acts.h"
+#include "act_registry.h"
+#include "gameplay_grid.h"
 #include "main.h"
+#include "tile_catalog.h"
 #include "tile_config.h"
 #include "raylib.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #define ROOM_VIEW_PADDING_TOP 16.0f
+#define LEVEL_GAMEPLAY_PATH_LEN 256
+#define LEVEL_ASEPRITE_PATH_LEN 256
 
 typedef enum {
     ZONE_NONE = 0,
@@ -27,7 +33,15 @@ typedef struct Level {
     int cols;
     int rows;
     TileType *tiles;
+    uint32_t *tile_flags;
     int *surface_y;
+    GameplayGrid gameplay;
+    char gameplay_path[LEVEL_GAMEPLAY_PATH_LEN];
+    char aseprite_path[LEVEL_ASEPRITE_PATH_LEN];
+    char collision_png_path[LEVEL_GAMEPLAY_PATH_LEN];
+    Image collision_edit;
+    bool collision_dirty;
+    const char *act_id;
     Texture2D tex_background;
     Texture2D tex_base;
     Vector2 spawn;
@@ -47,13 +61,29 @@ typedef struct Level {
     bool loaded;
 } Level;
 
-bool level_load(Level *level, const ActDef *act);
+bool level_load(Level *level, const ActDesc *act);
 void level_free(Level *level);
 
 bool level_set_active_save(Level *level, int save_index);
 
 TileType level_get_tile(const Level *level, int col, int row);
+uint32_t level_get_cell_flags(const Level *level, int col, int row);
+bool level_cell_has_flag(const Level *level, int col, int row, uint32_t flag);
 int level_get_surface_y(const Level *level, int col, int row);
+
+void level_sync_collision_from_gameplay(Level *level, const TileCatalog *catalog);
+bool level_save_gameplay(const Level *level, const TileCatalog *catalog);
+
+bool level_cell_is_solid(const Level *level, int col, int row);
+uint32_t level_cell_effective_flags(const Level *level, const TileCatalog *catalog, int col, int row);
+bool level_has_tag_override(const Level *level, int col, int row);
+
+void level_collision_paint_cell(Level *level, int col, int row);
+void level_collision_erase_cell(Level *level, int col, int row);
+void level_sync_from_collision_image(Level *level, const TileCatalog *catalog);
+void level_refresh_collision_texture(Level *level, const TileCatalog *catalog);
+bool level_reload_visuals(Level *level, const ActDesc *act);
+bool level_save_collision_to_aseprite(Level *level);
 
 const RoomDef *level_get_active_room(const Level *level);
 const TunnelDef *level_find_tunnel_by_id(const Level *level, const char *tunnel_id);

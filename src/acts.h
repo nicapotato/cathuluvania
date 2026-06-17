@@ -1,6 +1,8 @@
 #ifndef ACTS_H
 #define ACTS_H
 
-#include "acts.gen.h"
+#include "act_registry.h"
+
+#define DEFAULT_ACT_ID "dark-act"
 
 #endif

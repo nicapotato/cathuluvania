@@ -1,6 +1,9 @@
 #include "game.h"
-#include "acts_metadata.h"
+#include "act_create.h"
+#include "acts.h"
+#include "editor.h"
 #include "tile_config.h"
+#include "tile_catalog.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +27,8 @@
 #define UI_MAP_TITLE_H 22
 #define UI_MAP_DOOR_MIN_PX 3.0f
 #define UI_SAVE_MENU_GAP 4
+#define SLIPPERY_FRICTION_SCALE 0.2f
+#define CLIMB_WALL_SLIDE_MAX_VY 25.0f
 
 #define TRANS_FADE_SPEED 480.0f
 #define TUNNEL_PAN_DURATION 0.5f
@@ -108,6 +113,45 @@ static void get_player_aabb(float px, float py, float *l, float *t, float *r, fl
     *r = px + PLAYER_HALF;
     *t = py - PLAYER_HALF;
     *b = py + PLAYER_HALF;
+}
+
+static bool player_on_slippery_ground(const Game *g) {
+    const Player *p = &g->player;
+    int feet_row = (int)floorf((p->pos.y + PLAYER_HALF) / (float)TILE_SIZE);
+    int col_l = (int)floorf((p->pos.x - PLAYER_HALF) / (float)TILE_SIZE);
+    int col_r = (int)floorf((p->pos.x + PLAYER_HALF) / (float)TILE_SIZE);
+
+    for (int c = col_l; c <= col_r; c++) {
+        if (level_cell_has_flag(&g->level, c, feet_row, TILE_FLAG_SLIPPERY))
+            return true;
+    }
+    return false;
+}
+
+static bool wall_cell_is_climbable(const Game *g, int col, int row) {
+    return level_cell_has_flag(&g->level, col, row, TILE_FLAG_CLIMB);
+}
+
+static bool player_touching_climbable_wall(const Game *g) {
+    const Player *p = &g->player;
+    int row_t = (int)floorf((p->pos.y - PLAYER_HALF_Y) / (float)TILE_SIZE);
+    int row_b = (int)floorf((p->pos.y + PLAYER_HALF_Y) / (float)TILE_SIZE);
+
+    if (g->player.on_wall_left) {
+        int col = (int)floorf((p->pos.x - PLAYER_HALF_X) / (float)TILE_SIZE) - 1;
+        for (int r = row_t; r <= row_b; r++) {
+            if (wall_cell_is_climbable(g, col, r))
+                return true;
+        }
+    }
+    if (g->player.on_wall_right) {
+        int col = (int)floorf((p->pos.x + PLAYER_HALF_X) / (float)TILE_SIZE) + 1;
+        for (int r = row_t; r <= row_b; r++) {
+            if (wall_cell_is_climbable(g, col, r))
+                return true;
+        }
+    }
+    return false;
 }
 
 static void get_player_aabb_horizontal(float px, float py, float *l, float *t, float *r, float *b) {
@@ -425,12 +469,28 @@ static void game_reset_player(Game *g) {
     game_sync_trigger_overlap_state(g);
 }
 
+static int game_act_count(const Game *g) {
+    return act_registry_count(&g->act_registry);
+}
+
 static bool game_load_act(Game *g, int index) {
-    if (index < 0 || index >= ACT_COUNT)
+    if (index < 0 || index >= game_act_count(g))
+        return false;
+
+    if (g->editor_mode && g->editor.dirty) {
+        TraceLog(LOG_WARNING, "Editor: discarding unsaved gameplay changes for act switch");
+    }
+
+    editor_exit(g);
+    g->editor_mode = false;
+    g->editor.dirty = false;
+
+    const ActDesc *act = act_registry_get(&g->act_registry, index);
+    if (!act)
         return false;
 
     level_free(&g->level);
-    if (!level_load(&g->level, &ACTS[index]))
+    if (!level_load(&g->level, act))
         return false;
 
     g->active_act_index = index;
@@ -624,7 +684,7 @@ static void try_jump(Player *p) {
 }
 
 static int ui_act_menu_height(const Game *g) {
-    int rows = g->act_menu_open ? (ACT_COUNT + 1) : 1;
+    int rows = g->act_menu_open ? (game_act_count(g) + 1) : 1;
     return UI_ACT_MENU_PAD * 2 + rows * UI_ACT_MENU_ROW_H;
 }
 
@@ -807,7 +867,7 @@ static void game_handle_ui_input(Game *g) {
             int act_index = row - 1;
             g->act_menu_open = false;
             g->save_menu_open = false;
-            if (act_index >= 0 && act_index < ACT_COUNT && act_index != g->active_act_index)
+            if (act_index >= 0 && act_index < game_act_count(g) && act_index != g->active_act_index)
                 game_load_act(g, act_index);
         } else {
             g->act_menu_open = true;
@@ -835,6 +895,23 @@ static void game_handle_input(Game *g, float dt) {
 
     if (g->transition != TRANS_NONE)
         return;
+
+    if (IsKeyPressed(KEY_TAB)) {
+        if (g->editor_mode) {
+            editor_try_exit(g);
+            g->editor_mode = g->editor.active;
+        } else if (!g->map_open) {
+            g->editor_mode = true;
+            editor_enter(g);
+        }
+    }
+
+    if (g->editor_mode) {
+        editor_handle_input(g, dt);
+        if (!g->editor.active)
+            g->editor_mode = false;
+        return;
+    }
 
     if (IsKeyPressed(KEY_M)) {
         g->map_open = !g->map_open;
@@ -864,6 +941,8 @@ static void game_handle_input(Game *g, float dt) {
 
     if (move_input == 0.0f && p->grounded) {
         float friction = MOVE_SPEED * 3.0f * dt;
+        if (player_on_slippery_ground(g))
+            friction *= SLIPPERY_FRICTION_SCALE;
         if (fabsf(p->vel.x) <= friction)
             p->vel.x = 0.0f;
         else
@@ -878,6 +957,9 @@ static void game_handle_input(Game *g, float dt) {
 
 static void game_update(Game *g, float dt) {
     game_update_transition(g, dt);
+
+    if (g->editor_mode)
+        return;
 
     if (g->transition == TRANS_NONE && !g->map_open) {
         Player *p = &g->player;
@@ -906,8 +988,13 @@ static void game_update(Game *g, float dt) {
                 p->coyote_timer = 0.0f;
         }
 
-        if (!p->grounded && (p->on_wall_left || p->on_wall_right) && p->vel.y > WALL_SLIDE_MAX_VY)
-            p->vel.y = WALL_SLIDE_MAX_VY;
+        if (!p->grounded && (p->on_wall_left || p->on_wall_right) && p->vel.y > WALL_SLIDE_MAX_VY) {
+            float slide_cap = WALL_SLIDE_MAX_VY;
+            if (player_touching_climbable_wall(g))
+                slide_cap = CLIMB_WALL_SLIDE_MAX_VY;
+            if (p->vel.y > slide_cap)
+                p->vel.y = slide_cap;
+        }
 
         if (p->jump_buffer_timer > 0.0f) {
             p->jump_buffer_timer -= dt;
@@ -1168,6 +1255,7 @@ static void game_draw_world(Game *g) {
     cam.zoom = 1.0f;
 
     BeginMode2D(cam);
+
     if (g->level.tex_base.id != 0)
         DrawTexture(g->level.tex_base, 0, 0, WHITE);
 
@@ -1182,6 +1270,10 @@ static void game_draw_world(Game *g) {
 
     if (g->debug_mode)
         game_draw_debug_player_collision(g);
+
+    if (g->editor_mode)
+        editor_draw_world(g);
+
     EndMode2D();
 
     if (g->transition_alpha > 0.0f) {
@@ -1195,7 +1287,7 @@ static void game_draw_world(Game *g) {
 }
 
 static void game_draw_act_menu(const Game *g) {
-    const ActDef *active = &ACTS[g->active_act_index];
+    const ActDesc *active = act_registry_get(&g->act_registry, g->active_act_index);
     int menu_h = ui_act_menu_height(g);
 
     Rectangle menu_bg = {
@@ -1207,7 +1299,7 @@ static void game_draw_act_menu(const Game *g) {
     DrawRectangleRec(menu_bg, (Color){ 20, 20, 30, 220 });
     DrawRectangleLinesEx(menu_bg, 1.0f, RAYWHITE);
 
-    const char *header = TextFormat("%s v", active->label);
+    const char *header = TextFormat("%s v", active ? active->label : "?");
     DrawText(header,
              UI_ACT_MENU_X + UI_ACT_MENU_PAD,
              UI_ACT_MENU_Y + UI_ACT_MENU_PAD,
@@ -1216,9 +1308,12 @@ static void game_draw_act_menu(const Game *g) {
     if (!g->act_menu_open)
         return;
 
-    for (int i = 0; i < ACT_COUNT; i++) {
+    for (int i = 0; i < game_act_count(g); i++) {
+        const ActDesc *act = act_registry_get(&g->act_registry, i);
+        if (!act)
+            continue;
         Color color = (i == g->active_act_index) ? (Color){ 180, 220, 255, 255 } : LIGHTGRAY;
-        DrawText(ACTS[i].label,
+        DrawText(act->label,
                  UI_ACT_MENU_X + UI_ACT_MENU_PAD,
                  UI_ACT_MENU_Y + UI_ACT_MENU_PAD + (i + 1) * UI_ACT_MENU_ROW_H,
                  UI_FONT_SIZE, color);
@@ -1298,8 +1393,8 @@ static void game_draw_map(const Game *g) {
     DrawRectangleRec(layout.panel, (Color){ 20, 20, 30, 240 });
     DrawRectangleLinesEx(layout.panel, 1.0f, RAYWHITE);
 
-    const ActDef *act = &ACTS[g->active_act_index];
-    const char *title = TextFormat("Map — %s", act->label);
+    const ActDesc *act = act_registry_get(&g->act_registry, g->active_act_index);
+    const char *title = TextFormat("Map — %s", act ? act->label : "?");
     DrawText(title,
              (int)(layout.panel.x + (float)UI_MAP_PANEL_PAD),
              (int)(layout.panel.y + 4),
@@ -1415,20 +1510,25 @@ static void game_draw(Game *g) {
     game_draw_map_button(g);
     game_draw_debug_button(g);
 
-    DrawText("A/D: move | Space: jump | R: respawn | M: map | Acts: top-left",
-             10, GetScreenHeight() - 22, 12, DARKGRAY);
-    if (g->debug_mode) {
-        const char *legend = g->map_open
-            ? "Debug map: green=collision | orange/yellow=saves | black=tunnel/teleport spawn"
-            : "Debug: green=body | orange/yellow=saves | Spawn menu below acts";
-        DrawText(legend, 10, GetScreenHeight() - 38, 12, (Color){ 120, 200, 120, 255 });
+    if (g->editor_mode) {
+        editor_draw_ui(g);
+    } else {
+        DrawText("A/D: move | Space: jump | R: respawn | M: map | Tab: editor | Acts: top-left",
+                 10, GetScreenHeight() - 22, 12, DARKGRAY);
+        if (g->debug_mode) {
+            const char *legend = g->map_open
+                ? "Debug map: green=collision | orange/yellow=saves | black=tunnel/teleport spawn"
+                : "Debug: green=body | orange/yellow=saves | Spawn menu below acts";
+            DrawText(legend, 10, GetScreenHeight() - 38, 12, (Color){ 120, 200, 120, 255 });
+        }
     }
     EndDrawing();
 }
 
-static int game_default_act_index(void) {
-    for (int i = 0; i < ACT_COUNT; i++) {
-        if (ACTS[i].id && strcmp(ACTS[i].id, DEFAULT_ACT_ID) == 0)
+static int game_default_act_index(const Game *g) {
+    for (int i = 0; i < game_act_count(g); i++) {
+        const ActDesc *act = act_registry_get(&g->act_registry, i);
+        if (act && act->id[0] && strcmp(act->id, DEFAULT_ACT_ID) == 0)
             return i;
     }
     return 0;
@@ -1442,15 +1542,31 @@ bool game_new(Game **out) {
     if (!g)
         return false;
 
-    int default_act = game_default_act_index();
-    g->active_act_index = default_act;
+    int default_act = 0;
+    g->active_act_index = 0;
     g->act_menu_open = false;
     g->save_menu_open = false;
     g->map_open = false;
     g->debug_mode = false;
     g->debug_save_index = 0;
+    g->editor_mode = false;
+    editor_init(&g->editor);
+
+    if (!tile_catalog_load_global("resources/gameplay/tile-catalog.json")) {
+        free(g);
+        return false;
+    }
+
+    if (!act_registry_load(&g->act_registry, NULL)) {
+        free(g);
+        return false;
+    }
+
+    default_act = game_default_act_index(g);
+    g->active_act_index = default_act;
 
     if (!game_load_act(g, default_act)) {
+        act_registry_free(&g->act_registry);
         free(g);
         return false;
     }
@@ -1473,9 +1589,44 @@ void game_free(Game **game) {
     Game *g = *game;
     if (g->target_loaded)
         UnloadRenderTexture(g->target);
+    editor_free(&g->editor);
     level_free(&g->level);
+    act_registry_free(&g->act_registry);
     free(g);
     *game = NULL;
+}
+
+bool game_create_new_act(Game *g) {
+    if (!g)
+        return false;
+
+    char id[64];
+    char label[128];
+    if (!act_create_generate_id(id, (int)sizeof(id)))
+        return false;
+
+    snprintf(label, sizeof(label), "New %s", id);
+    if (!act_create_empty_act(id, label, ACT_CREATE_DEFAULT_WIDTH, ACT_CREATE_DEFAULT_HEIGHT)) {
+        TraceLog(LOG_WARNING, "game_create_new_act: failed to create act files");
+        return false;
+    }
+
+    if (!act_registry_reload(&g->act_registry)) {
+        TraceLog(LOG_WARNING, "game_create_new_act: failed to reload act registry");
+        return false;
+    }
+
+    const ActDesc *created = act_registry_find(&g->act_registry, id);
+    if (!created)
+        return false;
+
+    for (int i = 0; i < game_act_count(g); i++) {
+        const ActDesc *act = act_registry_get(&g->act_registry, i);
+        if (act == created)
+            return game_load_act(g, i);
+    }
+
+    return false;
 }
 
 bool game_run(Game *game) {

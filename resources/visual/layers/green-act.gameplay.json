@@ -1,0 +1,59 @@
+{
+	"id":	"green-act",
+	"tile_size":	16,
+	"width":	2208,
+	"height":	1008,
+	"cells":	[{
+			"c":	5,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	6,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	7,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	8,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	9,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	10,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	11,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	12,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	13,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	14,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	15,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	16,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}, {
+			"c":	17,
+			"r":	24,
+			"flags":	["collision", "slippery"]
+		}]
+}

@@ -328,6 +328,7 @@ local lines = {
   "    int rows;",
   "    const char *background_png;",
   "    const char *collision_png;",
+  "    const char *gameplay_json;",
   "    const SavePointDef *saves;",
   "    int save_count;",
   "    const RoomDef *rooms;",
@@ -433,6 +434,8 @@ for i, row in ipairs(merged) do
   lines[#lines + 1] = string.format("        .cols = %d, .rows = %d,", tile_cols, tile_rows)
   lines[#lines + 1] = string.format('        .background_png = "%s",', c_escape(exp.background_png))
   lines[#lines + 1] = string.format('        .collision_png = "%s",', c_escape(exp.collision_png))
+  local gameplay_json = "resources/visual/layers/" .. exp.id .. ".gameplay.json"
+  lines[#lines + 1] = string.format('        .gameplay_json = "%s",', c_escape(gameplay_json))
   lines[#lines + 1] = string.format("        .saves = %s_SAVES,", ident)
   lines[#lines + 1] = string.format("        .save_count = %d,", #saves)
   lines[#lines + 1] = string.format("        .rooms = %s_ROOMS,", ident)
