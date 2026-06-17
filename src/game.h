@@ -3,7 +3,20 @@
 
 #include "acts.h"
 #include "level.h"
+#include "player_sprite.h"
+#include "raylib-aseprite.h"
 #include <stdbool.h>
+
+typedef enum {
+    PLAYER_ANIM_IDLE = 0,
+    PLAYER_ANIM_RUN,
+    PLAYER_ANIM_JUMP,
+    PLAYER_ANIM_JUMP_IN,
+    PLAYER_ANIM_FALL,
+    PLAYER_ANIM_ATTACK,
+    PLAYER_ANIM_GLIDE,
+    PLAYER_ANIM_DASH,
+} PlayerAnimKind;
 
 typedef struct Player {
     Vector2 pos;
@@ -15,6 +28,13 @@ typedef struct Player {
     float coyote_timer;
     float jump_buffer_timer;
     int air_jumps_left;
+    int facing;
+    PlayerAnimKind anim_kind;
+    AsepriteTag tag;
+    bool attack_active;
+    bool dash_active;
+    bool gliding;
+    float jump_in_timer;
 } Player;
 
 typedef struct CameraState {
@@ -38,6 +58,7 @@ typedef enum {
 typedef struct Game {
     Level level;
     Player player;
+    PlayerSprite player_sprite;
     CameraState camera;
     RenderTexture2D target;
     bool target_loaded;

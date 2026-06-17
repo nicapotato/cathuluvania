@@ -87,7 +87,7 @@ static const TeleportDef ACT_green_act_TELEPORTS[5] = {
 };
 
 static const SavePointDef ACT_dark_act_SAVES[6] = {
-    { .index = 0, .x = 147.0f, .y = 315.0f, .room_id = "r-1" },
+    { .index = 0, .x = 841.0f, .y = 841.0f, .room_id = "r-9" },
     { .index = 1, .x = 1159.0f, .y = 197.0f, .room_id = "r-2" },
     { .index = 2, .x = 2120.0f, .y = 88.0f, .room_id = "r-3" },
     { .index = 3, .x = 2304.0f, .y = 953.0f, .room_id = "r-7" },
@@ -98,26 +98,26 @@ static const SavePointDef ACT_dark_act_SAVES[6] = {
 static const RoomDef ACT_dark_act_ROOMS[11] = {
     { .id = "ir-1", .name = "Isolated Room 1", .isolated = true, .x = 32.0f, .y = 528.0f, .w = 288.0f, .h = 241.0f, .view_y = 528.0f, .view_h = 241.0f },
     { .id = "ir-2", .name = "Isolated Room 2", .isolated = true, .x = 32.0f, .y = 799.0f, .w = 288.0f, .h = 225.0f, .view_y = 799.0f, .view_h = 225.0f },
-    { .id = "r-1", .name = "Act Start", .isolated = false, .x = 29.0f, .y = 183.0f, .w = 787.0f, .h = 218.0f, .view_y = 183.0f, .view_h = 218.0f },
+    { .id = "r-1", .name = "Act Start", .isolated = false, .x = 29.0f, .y = 79.0f, .w = 787.0f, .h = 309.0f, .view_y = 79.0f, .view_h = 309.0f },
     { .id = "r-2", .name = NULL, .isolated = false, .x = 959.0f, .y = 127.0f, .w = 623.0f, .h = 274.0f, .view_y = 127.0f, .view_h = 274.0f },
-    { .id = "r-3", .name = NULL, .isolated = false, .x = 1697.0f, .y = 12.0f, .w = 614.0f, .h = 324.0f, .view_y = 12.0f, .view_h = 324.0f },
+    { .id = "r-3", .name = NULL, .isolated = false, .x = 1697.0f, .y = -3.0f, .w = 626.0f, .h = 339.0f, .view_y = -3.0f, .view_h = 339.0f },
     { .id = "r-4", .name = NULL, .isolated = false, .x = 2545.0f, .y = 131.0f, .w = 160.0f, .h = 336.0f, .view_y = 131.0f, .view_h = 336.0f },
     { .id = "r-5", .name = NULL, .isolated = false, .x = 2240.0f, .y = 397.0f, .w = 160.0f, .h = 337.0f, .view_y = 397.0f, .view_h = 337.0f },
     { .id = "r-6", .name = NULL, .isolated = false, .x = 2560.0f, .y = 655.0f, .w = 151.0f, .h = 404.0f, .view_y = 655.0f, .view_h = 404.0f },
     { .id = "r-7", .name = NULL, .isolated = false, .x = 2238.0f, .y = 927.0f, .w = 160.0f, .h = 274.0f, .view_y = 927.0f, .view_h = 274.0f },
     { .id = "r-8", .name = NULL, .isolated = false, .x = 1216.0f, .y = 512.0f, .w = 691.0f, .h = 694.0f, .view_y = 512.0f, .view_h = 694.0f },
-    { .id = "r-9", .name = NULL, .isolated = false, .x = 429.0f, .y = 415.0f, .w = 714.0f, .h = 626.0f, .view_y = 415.0f, .view_h = 626.0f }
+    { .id = "r-9", .name = NULL, .isolated = false, .x = 429.0f, .y = 415.0f, .w = 725.0f, .h = 626.0f, .view_y = 415.0f, .view_h = 626.0f }
 };
 
 static const TunnelDef ACT_dark_act_TUNNELS[8] = {
     { .id = "door-1", .room_a_id = "r-1", .room_b_id = "r-2", .x = 783.0f, .y = 208.0f, .w = 193.0f, .h = 32.0f, .spawn_ax = 799.5f, .spawn_ay = 232.0f, .spawn_bx = 967.5f, .spawn_by = 232.0f },
-    { .id = "door-2", .room_a_id = "r-2", .room_b_id = "r-3", .x = 1564.0f, .y = 161.0f, .w = 148.0f, .h = 31.0f, .spawn_ax = 1573.0f, .spawn_ay = 184.0f, .spawn_bx = 1704.5f, .spawn_by = 184.0f },
-    { .id = "door-3", .room_a_id = "r-3", .room_b_id = "r-4", .x = 2288.0f, .y = 144.0f, .w = 276.0f, .h = 32.0f, .spawn_ax = 2299.5f, .spawn_ay = 168.0f, .spawn_bx = 2554.5f, .spawn_by = 168.0f },
+    { .id = "door-2", .room_a_id = "r-2", .room_b_id = "r-3", .x = 1564.0f, .y = 144.0f, .w = 148.0f, .h = 48.0f, .spawn_ax = 1573.0f, .spawn_ay = 184.0f, .spawn_bx = 1704.5f, .spawn_by = 184.0f },
+    { .id = "door-3", .room_a_id = "r-3", .room_b_id = "r-4", .x = 2288.0f, .y = 127.0f, .w = 276.0f, .h = 49.0f, .spawn_ax = 2305.5f, .spawn_ay = 168.0f, .spawn_bx = 2554.5f, .spawn_by = 168.0f },
     { .id = "door-4", .room_a_id = "r-4", .room_b_id = "r-5", .x = 2382.0f, .y = 416.0f, .w = 180.0f, .h = 32.0f, .spawn_ax = 2553.5f, .spawn_ay = 440.0f, .spawn_bx = 2391.0f, .spawn_by = 440.0f },
     { .id = "door-6", .room_a_id = "r-5", .room_b_id = "r-6", .x = 2382.0f, .y = 672.0f, .w = 198.0f, .h = 32.0f, .spawn_ax = 2391.0f, .spawn_ay = 696.0f, .spawn_bx = 2570.0f, .spawn_by = 696.0f },
     { .id = "door-7", .room_a_id = "r-6", .room_b_id = "r-7", .x = 2382.0f, .y = 988.0f, .w = 196.0f, .h = 38.0f, .spawn_ax = 2569.0f, .spawn_ay = 1018.0f, .spawn_bx = 2390.0f, .spawn_by = 1018.0f },
     { .id = "door-8", .room_a_id = "r-7", .room_b_id = "r-8", .x = 1872.0f, .y = 1120.0f, .w = 384.0f, .h = 33.0f, .spawn_ax = 2247.0f, .spawn_ay = 1145.0f, .spawn_bx = 1889.5f, .spawn_by = 1145.0f },
-    { .id = "door-9", .room_a_id = "r-8", .room_b_id = "r-9", .x = 1088.0f, .y = 544.0f, .w = 160.0f, .h = 48.0f, .spawn_ax = 1232.0f, .spawn_ay = 584.0f, .spawn_bx = 1115.5f, .spawn_by = 584.0f }
+    { .id = "door-9", .room_a_id = "r-8", .room_b_id = "r-9", .x = 1088.0f, .y = 544.0f, .w = 160.0f, .h = 48.0f, .spawn_ax = 1232.0f, .spawn_ay = 584.0f, .spawn_bx = 1121.0f, .spawn_by = 584.0f }
 };
 
 static const TeleportDef ACT_dark_act_TELEPORTS[5] = {

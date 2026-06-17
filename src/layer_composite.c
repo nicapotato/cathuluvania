@@ -1,19 +1,5 @@
 #include "raylib.h"
-
-#define CUTE_ASEPRITE_IMPLEMENTATION
-
-#define CUTE_ASEPRITE_WARNING(msg) TraceLog(LOG_WARNING, "ASEPRITE: %s (cute_aseprite.h:%i)", msg, __LINE__)
-#define CUTE_ASEPRITE_ASSERT(condition) \
-    do { \
-        if (!(condition)) { \
-            TraceLog(LOG_WARNING, "ASEPRITE: Failed assert \"%s\" in %s:%i", #condition, __FILE__, __LINE__); \
-        } \
-    } while (0)
-#define CUTE_ASEPRITE_ALLOC(size, ctx) MemAlloc((unsigned int)(size))
-#define CUTE_ASEPRITE_FREE(mem, ctx) MemFree((void *)(mem))
-
 #include "cute_aseprite.h"
-
 #include "layer_composite.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -178,6 +164,58 @@ static void lc_composite_frame(ase_t *ase, int frame_index, const char *layer_na
     }
 }
 
+static bool lc_is_excluded_layer(const char *layer_name, const char *const *exclude_layers,
+                                 int exclude_layer_count) {
+    if (!layer_name || !exclude_layers || exclude_layer_count <= 0)
+        return false;
+    for (int i = 0; i < exclude_layer_count; i++) {
+        if (exclude_layers[i] && lc_names_equivalent(layer_name, exclude_layers[i]))
+            return true;
+    }
+    return false;
+}
+
+static void lc_composite_frame_excluding_layers(ase_t *ase, int frame_index,
+                                                const char *const *exclude_layers,
+                                                int exclude_layer_count, ase_color_t *dst) {
+    ase_frame_t *frame = ase->frames + frame_index;
+    int aw = ase->w;
+    int ah = ase->h;
+    memset(dst, 0, (size_t)aw * (size_t)ah * sizeof(ase_color_t));
+
+    for (int j = 0; j < frame->cel_count; j++) {
+        ase_cel_t *cel = frame->cels + j;
+        if (!cel->layer || !cel->layer->name)
+            continue;
+        if (lc_is_excluded_layer(cel->layer->name, exclude_layers, exclude_layer_count))
+            continue;
+
+        cel = lc_resolve_linked_cel(ase, cel);
+        if (!cel || !cel->pixels)
+            continue;
+
+        uint8_t opacity = (uint8_t)(cel->opacity * cel->layer->opacity * 255.0f);
+        int cx = cel->x;
+        int cy = cel->y;
+        int cw = cel->w;
+        int ch = cel->h;
+        int cl = -lc_min(cx, 0);
+        int ct = -lc_min(cy, 0);
+        int dl = lc_max(cx, 0);
+        int dt = lc_max(cy, 0);
+        int dr = lc_min(aw, cw + cx);
+        int db = lc_min(ah, ch + cy);
+
+        for (int dx = dl, sx = cl; dx < dr; dx++, sx++) {
+            for (int dy = dt, sy = ct; dy < db; dy++, sy++) {
+                int dst_index = aw * dy + dx;
+                ase_color_t src_color = lc_sample_cel(ase, cel->pixels, cw * sy + sx);
+                dst[dst_index] = lc_blend(src_color, dst[dst_index], opacity);
+            }
+        }
+    }
+}
+
 static void lc_apply_transparency(ase_t *ase, Image *image) {
     int transparency = ase->transparent_palette_entry_index;
     if (transparency < 0 || transparency >= ase->palette.entry_count)
@@ -256,4 +294,45 @@ bool layer_composite_bake_layer_texture(const ase_t *ase, int frame_index,
 
     SetTextureFilter(*out_texture, TEXTURE_FILTER_POINT);
     return true;
+}
+
+bool layer_composite_bake_frame_excluding_layers(const ase_t *ase, int frame_index,
+                                                 const char *const *exclude_layers,
+                                                 int exclude_layer_count, Image *out_image) {
+    if (!ase || !out_image)
+        return false;
+    if (frame_index < 0 || frame_index >= ase->frame_count)
+        return false;
+    if (ase->w <= 0 || ase->h <= 0)
+        return false;
+
+    ase_color_t *scratch = (ase_color_t *)MemAlloc(
+        (unsigned int)(ase->w * ase->h * (int)sizeof(ase_color_t)));
+    if (!scratch)
+        return false;
+
+    lc_composite_frame_excluding_layers((ase_t *)ase, frame_index, exclude_layers,
+                                        exclude_layer_count, scratch);
+
+    Image image = {
+        .data = scratch,
+        .width = ase->w,
+        .height = ase->h,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    };
+    *out_image = ImageCopy(image);
+    MemFree(scratch);
+
+    if (out_image->data == NULL)
+        return false;
+
+    lc_apply_transparency((ase_t *)ase, out_image);
+    return true;
+}
+
+bool layer_composite_bake_frame_excluding_layer(const ase_t *ase, int frame_index,
+                                                const char *exclude_layer, Image *out_image) {
+    return layer_composite_bake_frame_excluding_layers(ase, frame_index, &exclude_layer,
+                                                       exclude_layer ? 1 : 0, out_image);
 }

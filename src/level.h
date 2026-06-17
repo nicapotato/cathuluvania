@@ -2,6 +2,7 @@
 #define LEVEL_H
 
 #include "acts.h"
+#include "collision.h"
 #include "main.h"
 #include "tile_config.h"
 #include "raylib.h"
@@ -28,6 +29,7 @@ typedef struct Level {
     int rows;
     TileType *tiles;
     int *surface_y;
+    CollisionWorld collision;
     Texture2D tex_background;
     Texture2D tex_base;
     Vector2 spawn;

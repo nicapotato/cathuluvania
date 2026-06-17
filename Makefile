@@ -6,7 +6,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean run help app-bundle run-app assets vendor-raylib itch-macos itch-windows package-windows smoke run-smoke smoke-test-bundle cathuluvania-ci cathuluvania-ci-watch cathuluvania-release cathuluvania-release-watch
+.PHONY: all clean run help app-bundle run-app assets vendor-raylib itch-macos itch-windows package-windows smoke run-smoke smoke-test-bundle collision-test run-collision-test cathuluvania-ci cathuluvania-ci-watch cathuluvania-release cathuluvania-release-watch
 
 CATHULUVANIA_WORKFLOW := .github/workflows/cathuluvania-cicd.yml
 # Default platform: all | web | macos | windows
@@ -75,9 +75,12 @@ endif
 EXECUTABLE = $(BIN_DIR)/$(BUILD_CONFIG)/$(APP_NAME)$(EXE_EXT)
 SMOKE_EXECUTABLE = $(BIN_DIR)/$(BUILD_CONFIG)/$(SMOKE_BIN)$(EXE_EXT)
 SMOKE_SRCS = $(SRC_DIR)/smoke_main.c $(SRC_DIR)/platform_path.c
+COLLISION_TEST_BIN = Cathuluvania_collision_test
+COLLISION_TEST_EXECUTABLE = $(BIN_DIR)/$(BUILD_CONFIG)/$(COLLISION_TEST_BIN)$(EXE_EXT)
+COLLISION_TEST_SRCS = $(SRC_DIR)/collision_test.c $(SRC_DIR)/level.c $(SRC_DIR)/collision.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c $(SRC_DIR)/raylib_aseprite.c $(SRC_DIR)/layer_composite.c $(SRC_DIR)/player_sprite.c
 WIN_RELEASE_DIR = release
 WIN_EXE = $(WIN_RELEASE_DIR)/$(APP_NAME).exe
-SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/game.c $(SRC_DIR)/level.c $(SRC_DIR)/collision.c $(SRC_DIR)/tile_config.c $(SRC_DIR)/platform_path.c $(SRC_DIR)/raylib_aseprite.c $(SRC_DIR)/layer_composite.c $(SRC_DIR)/player_sprite.c
 
 ASEPRITE ?= $(shell if [ -x /Applications/Aseprite.app/Contents/MacOS/aseprite ]; then echo /Applications/Aseprite.app/Contents/MacOS/aseprite; else echo aseprite; fi)
 ACTS = resources/visual/green-act.aseprite resources/visual/dark-act.aseprite
@@ -150,6 +153,10 @@ $(SMOKE_EXECUTABLE): $(SMOKE_SRCS) $(ACTS_GEN)
 	@mkdir -p $(dir $(SMOKE_EXECUTABLE))
 	$(CC) $(CFLAGS) -o $@ $(SMOKE_SRCS)
 
+$(COLLISION_TEST_EXECUTABLE): $(COLLISION_TEST_SRCS) $(ACTS_GEN) $(RAYLIB_LIB)
+	@mkdir -p $(dir $(COLLISION_TEST_EXECUTABLE))
+	$(CC) $(CFLAGS) -o $@ $(COLLISION_TEST_SRCS) $(LDFLAGS)
+
 smoke: $(SMOKE_EXECUTABLE)
 	@echo "Smoke binary ready: $(SMOKE_EXECUTABLE)"
 
@@ -163,6 +170,15 @@ run-smoke: smoke
 	@mkdir -p "$(dir $(SMOKE_EXECUTABLE))resources"
 	@rsync -a resources/ "$(dir $(SMOKE_EXECUTABLE))resources/"
 	@cd "$(dir $(SMOKE_EXECUTABLE))" && ./$(SMOKE_BIN)$(EXE_EXT)
+
+collision-test: $(COLLISION_TEST_EXECUTABLE)
+	@echo "Collision test binary ready: $(COLLISION_TEST_EXECUTABLE)"
+
+run-collision-test: collision-test
+	@echo "==== Running $(COLLISION_TEST_BIN) ===="
+	@mkdir -p "$(dir $(COLLISION_TEST_EXECUTABLE))resources"
+	@rsync -a resources/ "$(dir $(COLLISION_TEST_EXECUTABLE))resources/"
+	@cd "$(dir $(COLLISION_TEST_EXECUTABLE))" && ./$(COLLISION_TEST_BIN)$(EXE_EXT)
 
 # Validate packaged .app: bundle layout, static link, and resource paths from MacOS/.
 smoke-test-bundle:
@@ -205,6 +221,8 @@ help:
 	@echo "  package-windows - Stage release/ from an existing Release build (Windows)"
 	@echo "  smoke        - Build headless smoke binary (CI resource validation)"
 	@echo "  run-smoke    - Run headless smoke test (no display required)"
+	@echo "  collision-test     - Build headless collision regression binary"
+	@echo "  run-collision-test - Run collision regression tests (needs display/GLFW init)"
 	@echo "  smoke-test-bundle - Validate .app layout + resources after packaging"
 	@echo "  vendor-raylib  - Clone raylib $(RAYLIB_VERSION_REQUIRED) into external/raylib-master"
 	@echo "  cathuluvania-ci            - Dispatch CI workflow (PLATFORM, VERSION, CHANNEL, REF)"

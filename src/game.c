@@ -1,5 +1,7 @@
 #include "game.h"
 #include "acts_metadata.h"
+#include "collision.h"
+#include "main.h"
 #include "tile_config.h"
 #include <math.h>
 #include <stdio.h>
@@ -28,6 +30,12 @@
 #define TRANS_FADE_SPEED 480.0f
 #define TUNNEL_PAN_DURATION 0.5f
 
+static PlayerAnimKind player_resolve_anim_kind(const Game *g);
+static const char *player_anim_tag_name(PlayerAnimKind kind);
+static void player_update_aseprite(Game *g, float dt, bool was_grounded);
+static void player_init_sprite(Game *g);
+static void game_draw_debug_player_sprite(const Game *g);
+
 static float smoothstep(float t) {
     return t * t * (3.0f - 2.0f * t);
 }
@@ -55,52 +63,58 @@ static void game_clamp_camera_axis(float player_center, float view_size, float c
         *camera = max;
 }
 
-static void game_clamp_camera_to_player(Game *g) {
+static void game_compute_camera_target(const Game *g, float *out_x, float *out_y) {
     float view_w = (float)VIEW_WIDTH;
     float view_h = (float)VIEW_HEIGHT;
     const RoomDef *room = level_get_active_room(&g->level);
-    if (!room)
-        return;
 
-    float content_y = level_active_view_y(&g->level);
-    float content_h = level_active_view_h(&g->level);
-    game_clamp_camera_axis(g->player.pos.x, view_w, room->x, room->w, &g->camera.x);
-    game_clamp_camera_axis(g->player.pos.y, view_h, content_y, content_h, &g->camera.y);
-}
-
-static void game_clamp_camera(Game *g) {
-    if (g->transition == TRANS_CAMERA_PAN)
-        return;
-
-    const RoomDef *room = level_get_active_room(&g->level);
     if (room) {
-        game_clamp_camera_to_player(g);
+        float content_y = level_active_view_y(&g->level);
+        float content_h = level_active_view_h(&g->level);
+        game_clamp_camera_axis(g->player.pos.x, view_w, room->x, room->w, out_x);
+        game_clamp_camera_axis(g->player.pos.y, view_h, content_y, content_h, out_y);
         return;
     }
 
-    float view_w = (float)VIEW_WIDTH;
-    float view_h = (float)VIEW_HEIGHT;
     float min_x = 0.0f;
     float max_x = (float)g->level.width - view_w;
     float min_y = 0.0f;
     float max_y = (float)g->level.height - view_h;
 
-    g->camera.x = g->player.pos.x - view_w * 0.5f;
-    if (g->camera.x < min_x)
-        g->camera.x = min_x;
-    if (g->camera.x > max_x)
-        g->camera.x = max_x;
+    *out_x = g->player.pos.x - view_w * 0.5f;
+    if (*out_x < min_x)
+        *out_x = min_x;
+    if (*out_x > max_x)
+        *out_x = max_x;
 
-    g->camera.y = g->player.pos.y - view_h * 0.5f;
-    if (g->camera.y < min_y)
-        g->camera.y = min_y;
-    if (g->camera.y > max_y)
-        g->camera.y = max_y;
+    *out_y = g->player.pos.y - view_h * 0.5f;
+    if (*out_y < min_y)
+        *out_y = min_y;
+    if (*out_y > max_y)
+        *out_y = max_y;
 }
 
-static bool aabb_overlap(float a_l, float a_t, float a_r, float a_b,
-                         float b_l, float b_t, float b_r, float b_b) {
-    return a_l < b_r && a_r > b_l && a_t < b_b && a_b > b_t;
+static void game_update_camera(Game *g, float dt) {
+    if (g->transition == TRANS_CAMERA_PAN)
+        return;
+
+    float want_x, want_y;
+    game_compute_camera_target(g, &want_x, &want_y);
+
+    float t = CAMERA_FOLLOW_SPEED * dt;
+    if (t > 1.0f)
+        t = 1.0f;
+
+    g->camera.x += (want_x - g->camera.x) * t;
+    g->camera.y += (want_y - g->camera.y) * t;
+}
+
+static void game_clamp_camera_to_player(Game *g) {
+    game_compute_camera_target(g, &g->camera.x, &g->camera.y);
+}
+
+static void game_clamp_camera(Game *g) {
+    game_update_camera(g, 1.0f);
 }
 
 static void get_player_aabb(float px, float py, float *l, float *t, float *r, float *b) {
@@ -110,65 +124,30 @@ static void get_player_aabb(float px, float py, float *l, float *t, float *r, fl
     *b = py + PLAYER_HALF;
 }
 
-static void get_player_aabb_horizontal(float px, float py, float *l, float *t, float *r, float *b) {
-    float cy = py + PLAYER_COLLIDE_Y_BIAS;
-    *l = px - PLAYER_HALF_X;
-    *r = px + PLAYER_HALF_X;
-    *t = cy - PLAYER_HALF_Y;
-    *b = cy + PLAYER_HALF_Y;
-}
-
-static void get_tile_bounds_px(int col, int row, float *l, float *t, float *r, float *b) {
-    *l = (float)(col * TILE_SIZE);
-    *t = (float)(row * TILE_SIZE);
-    *r = (float)((col + 1) * TILE_SIZE);
-    *b = (float)((row + 1) * TILE_SIZE);
-}
-
-static float get_tile_feet_y(const Game *g, int col, int row) {
-    int surf = level_get_surface_y(&g->level, col, row);
-    if (surf >= 0)
-        return (float)surf;
-    return (float)(row * TILE_SIZE);
-}
-
-static TileType get_tile_at(const Game *g, int col, int row) {
-    return level_get_tile(&g->level, col, row);
-}
-
-static void get_tile_body_bounds(const Game *g, int col, int row, float *l, float *t, float *r, float *b) {
-    get_tile_bounds_px(col, row, l, t, r, b);
-    *t = get_tile_feet_y(g, col, row);
-}
-
-static void get_tile_collision_bounds(const Game *g, int col, int row, bool use_surface_top,
-                                      float *l, float *t, float *r, float *b) {
-    if (use_surface_top)
-        get_tile_body_bounds(g, col, row, l, t, r, b);
-    else
-        get_tile_bounds_px(col, row, l, t, r, b);
-    *l += COLLISION_SKIN;
-    *r -= COLLISION_SKIN;
-}
-
-static bool player_hits_tile_ceiling(float px, float py, float t_l, float t_r, float t_b) {
-    if (px < t_l || px > t_r)
+static bool game_get_player_capsule(const Game *g, PlayerCapsule *cap) {
+    if (!cap)
         return false;
-    return (py - PLAYER_HALF) < t_b;
+    cap->valid = false;
+    if (g->player_sprite.capsule_params.valid) {
+        player_capsule_from_pos(&g->player_sprite.capsule_params, g->player.pos.x, g->player.pos.y,
+                                  cap);
+        return cap->valid;
+    }
+    return false;
 }
 
-static bool player_standing_on_tile(const Game *g, int col, int row,
-                                    float p_l, float p_r, float p_b) {
-    if (!tile_is_solid(get_tile_at(g, col, row)))
-        return false;
+static void game_resolve_player_overlap(Game *g) {
+    PlayerCapsule cap;
+    if (!game_get_player_capsule(g, &cap))
+        return;
+    collision_resolve_overlap(&g->level.collision, &cap, &g->player.pos.x, &g->player.pos.y);
+}
 
-    float surf = get_tile_feet_y(g, col, row);
-    if (p_b < surf - GROUNDED_EPSILON || p_b > surf + GROUNDED_EPSILON)
+static bool game_player_overlap_aabb(const Game *g, float al, float at, float ar, float ab) {
+    PlayerCapsule cap;
+    if (!game_get_player_capsule(g, &cap))
         return false;
-
-    float t_l, t_t, t_r, t_b;
-    get_tile_bounds_px(col, row, &t_l, &t_t, &t_r, &t_b);
-    return p_l < t_r && p_r > t_l;
+    return player_capsule_overlaps_aabb(&cap, al, at, ar, ab);
 }
 
 static bool game_init_render_target(Game *g) {
@@ -186,23 +165,29 @@ static void game_clamp_player_to_room(Game *g) {
     if (!room)
         return;
 
-    float hw = PLAYER_HALF;
-    float min_x = room->x + hw;
-    float max_x = room->x + room->w - hw;
+    PlayerCapsule cap;
+    if (!game_get_player_capsule(g, &cap))
+        return;
+
+    float margin_l = g->player.pos.x - (cap.feet_x - cap.half_w);
+    float margin_r = (cap.feet_x + cap.half_w) - g->player.pos.x;
+    float margin_t = g->player.pos.y - (cap.feet_y - cap.height);
+    float margin_b = cap.feet_y - g->player.pos.y;
+
+    float min_x = room->x + margin_l;
+    float max_x = room->x + room->w - margin_r;
     if (g->player.pos.x < min_x)
         g->player.pos.x = min_x;
     if (g->player.pos.x > max_x)
         g->player.pos.x = max_x;
 
-    float min_y = room->y + hw;
-    float max_y = room->y + room->h - hw;
+    float min_y = room->y + margin_t;
+    float max_y = room->y + room->h - margin_b;
     if (g->player.pos.y < min_y)
         g->player.pos.y = min_y;
     if (g->player.pos.y > max_y)
         g->player.pos.y = max_y;
 }
-
-static bool check_grounded(const Game *g, float px, float py);
 
 static void game_sync_trigger_overlap_state(Game *g) {
     g->trigger_overlap_tunnel = NULL;
@@ -213,16 +198,13 @@ static void game_sync_trigger_overlap_state(Game *g) {
     if (!room)
         return;
 
-    float pl, pt, pr, pb;
-    get_player_aabb(g->player.pos.x, g->player.pos.y, &pl, &pt, &pr, &pb);
-
     if (!room->isolated && level->tunnels) {
         for (int i = 0; i < level->tunnel_count; i++) {
             const TunnelDef *tunnel = &level->tunnels[i];
             if (!level_tunnel_other_room(tunnel, room->id))
                 continue;
-            if (aabb_overlap(pl, pt, pr, pb, tunnel->x, tunnel->y,
-                             tunnel->x + tunnel->w, tunnel->y + tunnel->h)) {
+            if (game_player_overlap_aabb(g, tunnel->x, tunnel->y,
+                                         tunnel->x + tunnel->w, tunnel->y + tunnel->h)) {
                 g->trigger_overlap_tunnel = tunnel;
                 break;
             }
@@ -234,7 +216,7 @@ static void game_sync_trigger_overlap_state(Game *g) {
             const TeleportDef *tp = &level->teleports[i];
             if (!tp->room_id || strcmp(tp->room_id, room->id) != 0)
                 continue;
-            if (aabb_overlap(pl, pt, pr, pb, tp->x, tp->y, tp->x + tp->w, tp->y + tp->h)) {
+            if (game_player_overlap_aabb(g, tp->x, tp->y, tp->x + tp->w, tp->y + tp->h)) {
                 g->trigger_overlap_teleport = tp;
                 break;
             }
@@ -295,6 +277,7 @@ static void game_complete_transition(Game *g) {
     g->player.on_wall_left = false;
     g->player.on_wall_right = false;
 
+    game_resolve_player_overlap(g);
     game_clear_pending_transition(g);
     game_sync_trigger_overlap_state(g);
     game_clamp_camera(g);
@@ -308,6 +291,7 @@ static void game_update_transition(Game *g, float dt) {
             g->player.pos.x = g->player_pan_to_x;
             g->player.pos.y = g->player_pan_to_y;
             g->transition = TRANS_NONE;
+            game_resolve_player_overlap(g);
             game_sync_trigger_overlap_state(g);
         }
         float t = smoothstep(g->camera_pan_t);
@@ -339,9 +323,6 @@ static void game_check_transition_triggers(Game *g) {
     if (!room)
         return;
 
-    float pl, pt, pr, pb;
-    get_player_aabb(g->player.pos.x, g->player.pos.y, &pl, &pt, &pr, &pb);
-
     const TunnelDef *tunnel_overlap = NULL;
     const TeleportDef *teleport_overlap = NULL;
 
@@ -352,8 +333,8 @@ static void game_check_transition_triggers(Game *g) {
             if (!target_room)
                 continue;
 
-            if (!aabb_overlap(pl, pt, pr, pb, tunnel->x, tunnel->y,
-                              tunnel->x + tunnel->w, tunnel->y + tunnel->h))
+            if (!game_player_overlap_aabb(g, tunnel->x, tunnel->y,
+                                          tunnel->x + tunnel->w, tunnel->y + tunnel->h))
                 continue;
 
             tunnel_overlap = tunnel;
@@ -371,7 +352,7 @@ static void game_check_transition_triggers(Game *g) {
             if (!tp->link_id)
                 continue;
 
-            if (!aabb_overlap(pl, pt, pr, pb, tp->x, tp->y, tp->x + tp->w, tp->y + tp->h))
+            if (!game_player_overlap_aabb(g, tp->x, tp->y, tp->x + tp->w, tp->y + tp->h))
                 continue;
 
             teleport_overlap = tp;
@@ -405,9 +386,13 @@ static void game_spawn_at_save(Game *g, int save_index) {
     g->player.grounded = false;
     g->player.on_wall_left = false;
     g->player.on_wall_right = false;
+    g->player.attack_active = false;
+    g->player.dash_active = false;
+    g->player.gliding = false;
     g->player.air_jumps_left = 1;
     g->player.coyote_timer = COYOTE_TIME;
     g->player.jump_buffer_timer = 0.0f;
+    game_resolve_player_overlap(g);
     game_clamp_camera(g);
     game_sync_trigger_overlap_state(g);
 }
@@ -419,9 +404,13 @@ static void game_reset_player(Game *g) {
     g->player.grounded = false;
     g->player.on_wall_left = false;
     g->player.on_wall_right = false;
+    g->player.attack_active = false;
+    g->player.dash_active = false;
+    g->player.gliding = false;
     g->player.air_jumps_left = 1;
     g->player.coyote_timer = COYOTE_TIME;
     g->player.jump_buffer_timer = 0.0f;
+    game_resolve_player_overlap(g);
     game_sync_trigger_overlap_state(g);
 }
 
@@ -443,160 +432,6 @@ static bool game_load_act(Game *g, int index) {
     game_reset_player(g);
     game_clamp_camera(g);
     return true;
-}
-
-static void resolve_collision_horizontal(float *px, float *vx,
-                                       float p_l, float p_t, float p_r, float p_b,
-                                       float t_l, float t_t, float t_r, float t_b) {
-    float pen_l = p_r - t_l;
-    float pen_r = t_r - p_l;
-    float pen_t = p_b - t_t;
-    float pen_b = t_b - p_t;
-
-    float min_h = fminf(pen_l, pen_r);
-    float min_v = fminf(pen_t, pen_b);
-
-    if (!(min_h < min_v))
-        return;
-
-    if (pen_l < pen_r) {
-        *px -= pen_l;
-        *vx = 0.0f;
-    } else {
-        *px += pen_r;
-        *vx = 0.0f;
-    }
-}
-
-static bool resolve_collision_vertical(float *py, float *vy,
-                                       float p_l, float p_t, float p_r, float p_b,
-                                       float t_l, float t_t, float t_r, float t_b) {
-    float pen_l = p_r - t_l;
-    float pen_r = t_r - p_l;
-    float pen_t = p_b - t_t;
-    float pen_b = t_b - p_t;
-
-    float min_h = fminf(pen_l, pen_r);
-    float min_v = fminf(pen_t, pen_b);
-
-    if (!(min_v <= min_h))
-        return false;
-
-    float vy_in = *vy;
-    if (pen_t < pen_b) {
-        *py -= pen_t;
-        *vy = 0.0f;
-    } else {
-        *py += pen_b;
-        *vy = 0.0f;
-    }
-
-    if (vy_in >= 0.0f && p_b > t_t && p_t < t_t + (float)TILE_SIZE * 0.5f)
-        return true;
-    return false;
-}
-
-static bool check_grounded(const Game *g, float px, float py) {
-    float pl, pt, pr, pb;
-    get_player_aabb(px, py, &pl, &pt, &pr, &pb);
-
-    int feet_row = (int)floorf(pb / (float)TILE_SIZE);
-    int c0 = (int)floorf(pl / (float)TILE_SIZE);
-    int c1 = (int)floorf(pr / (float)TILE_SIZE);
-
-    for (int c = c0; c <= c1; c++) {
-        if (!tile_is_solid(get_tile_at(g, c, feet_row)))
-            continue;
-        float tile_top = get_tile_feet_y(g, c, feet_row);
-        float dist = pb - tile_top;
-        if (dist >= 0.0f && dist <= GROUNDED_EPSILON)
-            return true;
-    }
-    return false;
-}
-
-static bool resolve_collisions(Game *g, float *px, float *py, float *vx, float *vy, float dt,
-                               bool *out_wall_left, bool *out_wall_right) {
-    const int max_iter = 4;
-    bool wall_left = false;
-    bool wall_right = false;
-
-    *px += *vx * dt;
-
-    for (int iter = 0; iter < max_iter; iter++) {
-        float pl, pt, pr, pb;
-        get_player_aabb(*px, *py, &pl, &pt, &pr, &pb);
-        get_player_aabb_horizontal(*px, *py, &pl, &pt, &pr, &pb);
-        int c0 = (int)floorf(pl / (float)TILE_SIZE) - 1;
-        int c1 = (int)floorf(pr / (float)TILE_SIZE) + 1;
-        int r0 = (int)floorf(pt / (float)TILE_SIZE) - 1;
-        int r1 = (int)floorf(pb / (float)TILE_SIZE) + 1;
-
-        float px_before = *px;
-        float feet_l, feet_t, feet_r, feet_b;
-        get_player_aabb(*px, *py, &feet_l, &feet_t, &feet_r, &feet_b);
-
-        for (int r = r0; r <= r1; r++) {
-            for (int c = c0; c <= c1; c++) {
-                if (!tile_is_solid(get_tile_at(g, c, r)))
-                    continue;
-
-                if (player_standing_on_tile(g, c, r, feet_l, feet_r, feet_b))
-                    continue;
-
-                float tl, tt, tr, tb;
-                get_tile_collision_bounds(g, c, r, true, &tl, &tt, &tr, &tb);
-
-                if (!aabb_overlap(pl, pt, pr, pb, tl, tt, tr, tb))
-                    continue;
-
-                resolve_collision_horizontal(px, vx, pl, pt, pr, pb, tl, tt, tr, tb);
-            }
-        }
-        if (*px < px_before - 0.01f)
-            wall_left = true;
-        if (*px > px_before + 0.01f)
-            wall_right = true;
-    }
-
-    *py += *vy * dt;
-
-    bool grounded = false;
-    for (int iter = 0; iter < max_iter; iter++) {
-        float pl, pt, pr, pb;
-        get_player_aabb(*px, *py, &pl, &pt, &pr, &pb);
-        int c0 = (int)floorf(pl / (float)TILE_SIZE) - 1;
-        int c1 = (int)floorf(pr / (float)TILE_SIZE) + 1;
-        int r0 = (int)floorf(pt / (float)TILE_SIZE) - 1;
-        int r1 = (int)floorf(pb / (float)TILE_SIZE) + 1;
-
-        for (int r = r0; r <= r1; r++) {
-            for (int c = c0; c <= c1; c++) {
-                if (!tile_is_solid(get_tile_at(g, c, r)))
-                    continue;
-
-                float tl, tt, tr, tb;
-                get_tile_collision_bounds(g, c, r, true, &tl, &tt, &tr, &tb);
-                get_player_aabb(*px, *py, &pl, &pt, &pr, &pb);
-
-                if (!aabb_overlap(pl, pt, pr, pb, tl, tt, tr, tb))
-                    continue;
-
-                if (*vy < 0.0f && !player_hits_tile_ceiling(*px, *py, tl, tr, tb))
-                    continue;
-
-                if (resolve_collision_vertical(py, vy, pl, pt, pr, pb, tl, tt, tr, tb))
-                    grounded = true;
-            }
-        }
-    }
-
-    if (!grounded)
-        grounded = check_grounded(g, *px, *py);
-
-    *out_wall_left = wall_left;
-    *out_wall_right = wall_right;
-    return grounded;
 }
 
 static bool jump_pressed(void) {
@@ -847,8 +682,14 @@ static void game_handle_input(Game *g, float dt) {
 
     Player *p = &g->player;
 
-    if (IsKeyPressed(KEY_R))
+    if (IsKeyPressed(KEY_R)) {
         p->pos = p->spawn;
+        p->vel = (Vector2){ 0.0f, 0.0f };
+        p->attack_active = false;
+        p->dash_active = false;
+        p->gliding = false;
+        game_resolve_player_overlap(g);
+    }
 
     float move_input = 0.0f;
     if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))
@@ -856,18 +697,46 @@ static void game_handle_input(Game *g, float dt) {
     if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT))
         move_input += 1.0f;
 
-    float accel = p->grounded ? MOVE_SPEED : AIR_MOVE_SPEED;
-    p->vel.x += move_input * accel * dt;
+    if (move_input < 0.0f)
+        p->facing = -1;
+    else if (move_input > 0.0f)
+        p->facing = 1;
 
-    if (fabsf(p->vel.x) > MAX_RUN_SPEED)
-        p->vel.x = copysignf(MAX_RUN_SPEED, p->vel.x);
+    if (IsKeyPressed(KEY_J) && !p->attack_active && !p->dash_active && g->player_sprite.loaded) {
+        p->attack_active = true;
+        p->anim_kind = PLAYER_ANIM_ATTACK;
+        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, "attack-1-right");
+        if (IsAsepriteTagValid(p->tag)) {
+            p->tag.loop = false;
+            p->tag.paused = false;
+        }
+    }
 
-    if (move_input == 0.0f && p->grounded) {
-        float friction = MOVE_SPEED * 3.0f * dt;
-        if (fabsf(p->vel.x) <= friction)
-            p->vel.x = 0.0f;
-        else
-            p->vel.x -= copysignf(friction, p->vel.x);
+    if (IsKeyPressed(KEY_L) && !p->attack_active && !p->dash_active && g->player_sprite.loaded) {
+        p->dash_active = true;
+        p->anim_kind = PLAYER_ANIM_DASH;
+        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, "dash-right");
+        if (IsAsepriteTagValid(p->tag)) {
+            p->tag.loop = false;
+            p->tag.paused = false;
+        }
+        p->vel.x = (float)p->facing * DASH_SPEED;
+    }
+
+    if (!p->dash_active) {
+        float accel = p->grounded ? MOVE_SPEED : AIR_MOVE_SPEED;
+        p->vel.x += move_input * accel * dt;
+
+        if (fabsf(p->vel.x) > MAX_RUN_SPEED)
+            p->vel.x = copysignf(MAX_RUN_SPEED, p->vel.x);
+
+        if (move_input == 0.0f && p->grounded) {
+            float friction = MOVE_SPEED * 3.0f * dt;
+            if (fabsf(p->vel.x) <= friction)
+                p->vel.x = 0.0f;
+            else
+                p->vel.x -= copysignf(friction, p->vel.x);
+        }
     }
 
     if (jump_pressed()) {
@@ -879,19 +748,42 @@ static void game_handle_input(Game *g, float dt) {
 static void game_update(Game *g, float dt) {
     game_update_transition(g, dt);
 
+    bool was_grounded = g->player.grounded;
+
     if (g->transition == TRANS_NONE && !g->map_open) {
         Player *p = &g->player;
-        bool was_grounded = p->grounded;
 
-        if (!p->grounded)
-            p->vel.y += GRAVITY * dt;
+        p->gliding = IsKeyDown(KEY_K) && !p->grounded && !p->attack_active && !p->dash_active;
 
-        bool wall_left = false;
-        bool wall_right = false;
-        p->grounded = resolve_collisions(g, &p->pos.x, &p->pos.y, &p->vel.x, &p->vel.y, dt,
-                                         &wall_left, &wall_right);
-        p->on_wall_left = wall_left;
-        p->on_wall_right = wall_right;
+        if (!p->grounded) {
+            float grav = GRAVITY;
+            if (p->dash_active)
+                grav = DASH_GRAVITY;
+            else if (p->gliding && p->vel.y >= 0.0f)
+                grav = GLIDE_GRAVITY;
+            p->vel.y += grav * dt;
+            if (p->gliding && p->vel.y > GLIDE_MAX_VY)
+                p->vel.y = GLIDE_MAX_VY;
+        }
+
+        if (p->dash_active)
+            p->vel.x = (float)p->facing * DASH_SPEED;
+
+        PlayerCapsule cap;
+        if (game_get_player_capsule(g, &cap)) {
+            CollisionMoveResult cr =
+                collision_move_player(&g->level.collision, &cap, &p->pos.x, &p->pos.y, &p->vel.x,
+                                      &p->vel.y, dt);
+            p->grounded = cr.grounded;
+            p->on_wall_left = cr.wall_left;
+            p->on_wall_right = cr.wall_right;
+        } else {
+            p->grounded = false;
+            p->on_wall_left = false;
+            p->on_wall_right = false;
+            p->pos.x += p->vel.x * dt;
+            p->pos.y += p->vel.y * dt;
+        }
 
         if (p->grounded) {
             p->coyote_timer = COYOTE_TIME;
@@ -923,7 +815,9 @@ static void game_update(Game *g, float dt) {
         game_check_transition_triggers(g);
     }
 
-    game_clamp_camera(g);
+    player_update_aseprite(g, dt, was_grounded);
+
+    game_update_camera(g, dt);
 }
 
 static void game_draw_layer_slice(Texture2D tex, float src_x, float src_y, float view_w, float view_h) {
@@ -936,55 +830,150 @@ static void game_draw_layer_slice(Texture2D tex, float src_x, float src_y, float
 }
 
 static void game_draw_debug_collision(const Game *g, float view_w, float view_h) {
-    const Level *level = &g->level;
-    int c0 = (int)floorf(g->camera.x / (float)TILE_SIZE) - 1;
-    int c1 = (int)floorf((g->camera.x + view_w) / (float)TILE_SIZE) + 1;
-    int r0 = (int)floorf(g->camera.y / (float)TILE_SIZE) - 1;
-    int r1 = (int)floorf((g->camera.y + view_h) / (float)TILE_SIZE) + 1;
-
-    if (c0 < 0)
-        c0 = 0;
-    if (c1 >= level->cols)
-        c1 = level->cols - 1;
-    if (r0 < 0)
-        r0 = 0;
-    if (r1 >= level->rows)
-        r1 = level->rows - 1;
-
-    for (int r = r0; r <= r1; r++) {
-        for (int c = c0; c <= c1; c++) {
-            if (!tile_is_solid(level_get_tile(level, c, r)))
-                continue;
-
-            float tl, tt_full, tr, tb;
-            get_tile_bounds_px(c, r, &tl, &tt_full, &tr, &tb);
-            float surf = get_tile_feet_y(g, c, r);
-
-            DrawRectangleLinesEx((Rectangle){ tl, tt_full, tr - tl, tb - tt_full }, 1.0f,
-                                 (Color){ 100, 100, 100, 120 });
-
-            float body_l, body_t, body_r, body_b;
-            get_tile_collision_bounds(g, c, r, true, &body_l, &body_t, &body_r, &body_b);
-            if (body_r > body_l) {
-                DrawRectangleLinesEx((Rectangle){ body_l, body_t, body_r - body_l, body_b - body_t },
-                                     1.0f, (Color){ 50, 255, 100, 220 });
-            }
-
-            DrawLineV((Vector2){ body_l, surf }, (Vector2){ body_r, surf },
-                      (Color){ 0, 255, 255, 200 });
-        }
-    }
-
+    collision_draw_world_debug(&g->level.collision, g->camera.x, g->camera.y, view_w, view_h);
 }
 
 static void game_draw_debug_player_collision(const Game *g) {
-    float pl, pt, pr, pb;
-    get_player_aabb(g->player.pos.x, g->player.pos.y, &pl, &pt, &pr, &pb);
-    DrawRectangleLinesEx((Rectangle){ pl, pt, pr - pl, pb - pt }, 1.0f, RED);
+    PlayerCapsule cap;
+    if (game_get_player_capsule(g, &cap))
+        collision_draw_capsule_debug(&cap);
 
-    get_player_aabb_horizontal(g->player.pos.x, g->player.pos.y, &pl, &pt, &pr, &pb);
-    DrawRectangleLinesEx((Rectangle){ pl, pt, pr - pl, pb - pt }, 1.0f,
-                         (Color){ 255, 165, 0, 255 });
+    if (!g->player_sprite.loaded) {
+        float pl, pt, pr, pb;
+        get_player_aabb(g->player.pos.x, g->player.pos.y, &pl, &pt, &pr, &pb);
+        DrawRectangleLinesEx((Rectangle){ pl, pt, pr - pl, pb - pt }, 1.0f, RED);
+    }
+}
+
+static void game_draw_debug_player_sprite(const Game *g) {
+    if (!g->player_sprite.loaded || !IsAsepriteTagValid(g->player.tag))
+        return;
+
+    Vector2 world_feet = { g->player.pos.x, g->player.pos.y + PLAYER_HALF };
+    float pl, pt, pr, pb;
+    if (!player_sprite_world_collision_aabb(&g->player_sprite, g->player.tag.currentFrame,
+                                            g->player.facing < 0, world_feet.x, world_feet.y,
+                                            &pl, &pt, &pr, &pb))
+        return;
+
+    DrawLine((int)(world_feet.x - 4.0f), (int)world_feet.y,
+             (int)(world_feet.x + 4.0f), (int)world_feet.y, GREEN);
+    DrawLine((int)world_feet.x, (int)(world_feet.y - 4.0f),
+             (int)world_feet.x, (int)(world_feet.y + 4.0f), GREEN);
+
+    const char *tag_name = g->player.tag.name ? g->player.tag.name : "?";
+    DrawText(TextFormat("%s f%d", tag_name, g->player.tag.currentFrame),
+             (int)(world_feet.x + 8.0f), (int)(world_feet.y - 20.0f), 10, RAYWHITE);
+}
+
+static PlayerAnimKind player_resolve_anim_kind(const Game *g) {
+    const Player *p = &g->player;
+
+    if (p->attack_active)
+        return PLAYER_ANIM_ATTACK;
+    if (p->dash_active)
+        return PLAYER_ANIM_DASH;
+    if (p->gliding)
+        return PLAYER_ANIM_GLIDE;
+    if (p->jump_in_timer > 0.0f)
+        return PLAYER_ANIM_JUMP_IN;
+    if (!p->grounded) {
+        if (p->vel.y < 0.0f)
+            return PLAYER_ANIM_JUMP;
+        return PLAYER_ANIM_FALL;
+    }
+    if (fabsf(p->vel.x) >= PLAYER_SPRITE_RUN_THRESHOLD)
+        return PLAYER_ANIM_RUN;
+    return PLAYER_ANIM_IDLE;
+}
+
+static const char *player_anim_tag_name(PlayerAnimKind kind) {
+    switch (kind) {
+    case PLAYER_ANIM_RUN:
+        return "run-right";
+    case PLAYER_ANIM_JUMP:
+        return "jump-right";
+    case PLAYER_ANIM_JUMP_IN:
+        return "jumping-right";
+    case PLAYER_ANIM_FALL:
+        return "falling-right";
+    case PLAYER_ANIM_ATTACK:
+        return "attack-1-right";
+    case PLAYER_ANIM_GLIDE:
+        return "gliding-right";
+    case PLAYER_ANIM_DASH:
+        return "dash-right";
+    case PLAYER_ANIM_IDLE:
+    default:
+        return "idle-right";
+    }
+}
+
+static void player_update_aseprite(Game *g, float dt, bool was_grounded) {
+    if (!g->player_sprite.loaded)
+        return;
+
+    Player *p = &g->player;
+
+    if (was_grounded && !p->grounded)
+        p->jump_in_timer = PLAYER_JUMP_IN_TIME;
+
+    if (p->jump_in_timer > 0.0f) {
+        p->jump_in_timer -= dt;
+        if (p->jump_in_timer < 0.0f)
+            p->jump_in_timer = 0.0f;
+    }
+
+    PlayerAnimKind want = player_resolve_anim_kind(g);
+    if (want != p->anim_kind) {
+        p->anim_kind = want;
+        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, player_anim_tag_name(want));
+        if (!IsAsepriteTagValid(p->tag)) {
+            TraceLog(LOG_WARNING, "PLAYER_SPRITE: missing tag \"%s\"", player_anim_tag_name(want));
+            return;
+        }
+        p->tag.loop = (want != PLAYER_ANIM_ATTACK && want != PLAYER_ANIM_DASH);
+        p->tag.paused = false;
+    }
+
+    UpdateAsepriteTag(&p->tag);
+
+    if (p->dash_active && p->tag.paused) {
+        p->dash_active = false;
+        PlayerAnimKind next = player_resolve_anim_kind(g);
+        p->anim_kind = next;
+        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, player_anim_tag_name(next));
+        if (IsAsepriteTagValid(p->tag))
+            p->tag.loop = true;
+    } else if (p->attack_active && p->tag.paused) {
+        p->attack_active = false;
+        PlayerAnimKind want = player_resolve_anim_kind(g);
+        p->anim_kind = want;
+        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, player_anim_tag_name(want));
+        if (IsAsepriteTagValid(p->tag))
+            p->tag.loop = true;
+    }
+}
+
+static void player_init_sprite(Game *g) {
+    g->player.facing = 1;
+    g->player.anim_kind = PLAYER_ANIM_IDLE;
+    g->player.attack_active = false;
+    g->player.dash_active = false;
+    g->player.gliding = false;
+    g->player.jump_in_timer = 0.0f;
+    g->player.tag = (AsepriteTag){ 0 };
+
+    if (!player_sprite_load(&g->player_sprite, PLAYER_SPRITE_ASSET_PATH)) {
+        fprintf(stderr, "game: failed to load %s\n", PLAYER_SPRITE_ASSET_PATH);
+        return;
+    }
+
+    g->player.tag = LoadAsepriteTag(g->player_sprite.aseprite, "idle-right");
+    if (!IsAsepriteTagValid(g->player.tag))
+        fprintf(stderr, "game: missing idle-right tag in %s\n", PLAYER_SPRITE_ASSET_PATH);
+
+    game_resolve_player_overlap(g);
 }
 
 static const char *game_room_label(const RoomDef *room) {
@@ -1178,10 +1167,21 @@ static void game_draw_world(Game *g) {
 
     float pl = g->player.pos.x - PLAYER_HALF;
     float pt = g->player.pos.y - PLAYER_HALF;
-    DrawRectangle((int)pl, (int)pt, (int)PLAYER_SIZE, (int)PLAYER_SIZE, RED);
+    (void)pl;
+    (void)pt;
 
-    if (g->debug_mode)
+    if (g->player_sprite.loaded && IsAsepriteTagValid(g->player.tag)) {
+        Vector2 world_feet = { g->player.pos.x, g->player.pos.y + PLAYER_HALF };
+        bool flip_h = (g->player.facing < 0);
+        player_sprite_draw_tag(&g->player_sprite, g->player.tag, world_feet, flip_h, WHITE);
+    } else {
+        DrawRectangle((int)pl, (int)pt, (int)PLAYER_SIZE, (int)PLAYER_SIZE, RED);
+    }
+
+    if (g->debug_mode) {
         game_draw_debug_player_collision(g);
+        game_draw_debug_player_sprite(g);
+    }
     EndMode2D();
 
     if (g->transition_alpha > 0.0f) {
@@ -1415,7 +1415,7 @@ static void game_draw(Game *g) {
     game_draw_map_button(g);
     game_draw_debug_button(g);
 
-    DrawText("A/D: move | Space: jump | R: respawn | M: map | Acts: top-left",
+    DrawText("A/D: move | Space: jump | K: glide | J: attack | L: dash | R: respawn | M: map",
              10, GetScreenHeight() - 22, 12, DARKGRAY);
     if (g->debug_mode) {
         const char *legend = g->map_open
@@ -1460,6 +1460,8 @@ bool game_new(Game **out) {
         return false;
     }
 
+    player_init_sprite(g);
+
     g->running = true;
 
     *out = g;
@@ -1473,6 +1475,7 @@ void game_free(Game **game) {
     Game *g = *game;
     if (g->target_loaded)
         UnloadRenderTexture(g->target);
+    player_sprite_unload(&g->player_sprite);
     level_free(&g->level);
     free(g);
     *game = NULL;

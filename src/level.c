@@ -1,4 +1,5 @@
 #include "level.h"
+#include "collision.h"
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -85,7 +86,7 @@ static bool level_image_to_texture(const Image *image, Texture2D *out_texture) {
 }
 
 TileType level_get_tile(const Level *level, int col, int row) {
-    if (!level || !level->loaded || !level->tiles)
+    if (!level || !level->tiles)
         return TILE_EMPTY;
     if (col < 0 || col >= level->cols || row < 0 || row >= level->rows)
         return TILE_EMPTY;
@@ -93,7 +94,7 @@ TileType level_get_tile(const Level *level, int col, int row) {
 }
 
 int level_get_surface_y(const Level *level, int col, int row) {
-    if (!level || !level->loaded || !level->surface_y)
+    if (!level || !level->surface_y)
         return -1;
     if (col < 0 || col >= level->cols || row < 0 || row >= level->rows)
         return -1;
@@ -427,6 +428,13 @@ bool level_load(Level *level, const ActDef *act) {
 
     level_build_collision_from_image(level, &base_image);
     level_build_room_views(level, &base_image);
+    collision_world_init(&level->collision);
+    if (!collision_world_build(&level->collision, level)) {
+        fprintf(stderr, "Failed to build collision edges for %s\n", act->id);
+        UnloadImage(base_image);
+        level_free(level);
+        return false;
+    }
     if (!level_image_to_texture(&base_image, &level->tex_base)) {
         UnloadImage(base_image);
         level_free(level);
@@ -458,6 +466,7 @@ bool level_load(Level *level, const ActDef *act) {
 void level_free(Level *level) {
     if (!level)
         return;
+    collision_world_free(&level->collision);
     if (level->tex_background.id != 0)
         UnloadTexture(level->tex_background);
     if (level->tex_base.id != 0)
