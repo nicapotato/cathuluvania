@@ -51,6 +51,7 @@ $(BUILD_DIR):
 
 $(RAYLIB_SRC)/libraylib.web.a: vendor-raylib
 	@echo "Building Raylib for Web..."
+	@rm -f $(RAYLIB_SRC)/*.o $(RAYLIB_SRC)/libraylib.a
 	cd $(RAYLIB_SRC) && $(MAKE) PLATFORM=PLATFORM_WEB
 
 $(BUILD_DIR)/index.html: $(SRCS) $(ACTS_GEN) $(RAYLIB_SRC)/libraylib.web.a | $(BUILD_DIR)
