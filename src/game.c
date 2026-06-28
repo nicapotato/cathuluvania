@@ -22,6 +22,8 @@
 #define UI_MAP_BTN_W 56
 #define UI_MAP_BTN_H 22
 #define UI_MAP_BTN_GAP 4
+#define UI_PLAYER_BTN_W 64
+#define UI_PLAYER_PANEL_GAP 4
 #define UI_MAP_SCREEN_FRACTION 0.8f
 #define UI_MAP_PANEL_PAD 12
 #define UI_MAP_TITLE_H 22
@@ -35,6 +37,20 @@ static PlayerAnimKind player_resolve_anim_kind(const Game *g);
 static const char *player_anim_tag_name(PlayerAnimKind kind);
 static void player_update_aseprite(Game *g, float dt, bool was_grounded);
 static void player_init_sprite(Game *g);
+static void player_reset_movement_abilities(Player *p, Game *g);
+static void player_upgrades_init_defaults(PlayerUpgrades *upgrades);
+static void player_upgrades_set(Game *g, int jump, int dash, int glide);
+static void player_refill_ability_pools(Game *g);
+static void player_refill_air_pools(Game *g);
+static void player_reset_dash_on_jump(Game *g);
+static void game_handle_escape(Game *g);
+static bool game_quit_requested(void);
+static void game_draw_player_panel(const Game *g);
+static void game_draw_player_button(const Game *g);
+static int ui_player_menu_y(const Game *g);
+static int ui_player_menu_height(const Game *g);
+static Rectangle ui_player_button_rect(void);
+static bool ui_point_in_player_menu(const Game *g, Vector2 mouse);
 static void game_draw_debug_player_sprite(const Game *g);
 
 static float smoothstep(float t) {
@@ -251,6 +267,7 @@ static void game_begin_tunnel_crossing(Game *g, const TunnelDef *tunnel,
     g->player.grounded = true;
     g->player.on_wall_left = false;
     g->player.on_wall_right = false;
+    player_reset_movement_abilities(&g->player, g);
 
     g->camera_pan_t = 0.0f;
     g->transition = TRANS_CAMERA_PAN;
@@ -367,6 +384,7 @@ static void game_check_transition_triggers(Game *g) {
                 g->pending_to_teleport = link;
                 g->transition = TRANS_FADE_OUT;
                 g->transition_alpha = 0.0f;
+                player_reset_movement_abilities(&g->player, g);
             }
             break;
         }
@@ -388,11 +406,11 @@ static void game_spawn_at_save(Game *g, int save_index) {
     g->player.on_wall_left = false;
     g->player.on_wall_right = false;
     g->player.attack_active = false;
-    g->player.dash_active = false;
+    player_reset_movement_abilities(&g->player, g);
     g->player.gliding = false;
-    g->player.air_jumps_left = 1;
     g->player.coyote_timer = COYOTE_TIME;
     g->player.jump_buffer_timer = 0.0f;
+    player_refill_ability_pools(g);
     game_resolve_player_overlap(g);
     game_clamp_camera(g);
     game_sync_trigger_overlap_state(g);
@@ -406,11 +424,11 @@ static void game_reset_player(Game *g) {
     g->player.on_wall_left = false;
     g->player.on_wall_right = false;
     g->player.attack_active = false;
-    g->player.dash_active = false;
+    player_reset_movement_abilities(&g->player, g);
     g->player.gliding = false;
-    g->player.air_jumps_left = 1;
     g->player.coyote_timer = COYOTE_TIME;
     g->player.jump_buffer_timer = 0.0f;
+    player_refill_ability_pools(g);
     game_resolve_player_overlap(g);
     game_sync_trigger_overlap_state(g);
 }
@@ -426,7 +444,9 @@ static bool game_load_act(Game *g, int index) {
     g->active_act_index = index;
     g->map_open = false;
     g->save_menu_open = false;
+    g->player_panel_open = false;
     g->debug_save_index = 0;
+    player_upgrades_init_defaults(&g->upgrades);
     g->transition = TRANS_NONE;
     g->transition_alpha = 0.0f;
     game_clear_pending_transition(g);
@@ -435,28 +455,187 @@ static bool game_load_act(Game *g, int index) {
     return true;
 }
 
+static bool player_is_dashing(const Player *p) {
+    return p->dash_phase != DASH_NONE;
+}
+
+static void player_reset_movement_abilities(Player *p, Game *g) {
+    p->dash_phase = DASH_NONE;
+    p->dash_charge_time = 0.0f;
+    p->dash_speed = 0.0f;
+    p->dash_dir = (Vector2){ 1.0f, 0.0f };
+    p->glide_active = false;
+    if (g)
+        g->time_scale = 1.0f;
+}
+
+static void player_upgrades_init_defaults(PlayerUpgrades *upgrades) {
+    if (!upgrades)
+        return;
+    upgrades->jump_capacity = PLAYER_JUMP_CAPACITY_DEFAULT;
+    upgrades->dash_capacity = PLAYER_DASH_CAPACITY_DEFAULT;
+    upgrades->glide_capacity = PLAYER_GLIDE_CAPACITY_DEFAULT;
+}
+
+static void player_upgrades_set(Game *g, int jump, int dash, int glide) {
+    if (!g)
+        return;
+    if (jump < 0)
+        jump = 0;
+    if (dash < 0)
+        dash = 0;
+    if (glide < 0)
+        glide = 0;
+    if (jump > PLAYER_UPGRADE_CAPACITY_MAX)
+        jump = PLAYER_UPGRADE_CAPACITY_MAX;
+    if (dash > PLAYER_UPGRADE_CAPACITY_MAX)
+        dash = PLAYER_UPGRADE_CAPACITY_MAX;
+    if (glide > PLAYER_UPGRADE_CAPACITY_MAX)
+        glide = PLAYER_UPGRADE_CAPACITY_MAX;
+
+    g->upgrades.jump_capacity = jump;
+    g->upgrades.dash_capacity = dash;
+    g->upgrades.glide_capacity = glide;
+    player_refill_ability_pools(g);
+}
+
+static void player_refill_air_pools(Game *g) {
+    Player *p = &g->player;
+    p->air_jumps_left = g->upgrades.jump_capacity;
+    p->glides_left = g->upgrades.glide_capacity;
+    p->glide_active = false;
+}
+
+static void player_refill_ability_pools(Game *g) {
+    player_refill_air_pools(g);
+    g->player.dashes_left = g->upgrades.dash_capacity;
+}
+
+static void player_reset_dash_on_jump(Game *g) {
+    g->player.dashes_left = g->upgrades.dash_capacity;
+}
+
 static bool jump_pressed(void) {
     return IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP);
 }
 
-static void try_jump(Player *p) {
-    bool can_ground_jump = p->grounded || p->coyote_timer > 0.0f;
-    bool can_air_jump = !p->grounded && p->coyote_timer <= 0.0f && p->air_jumps_left > 0;
+static bool jump_released(void) {
+    return IsKeyReleased(KEY_SPACE) || IsKeyReleased(KEY_W) || IsKeyReleased(KEY_UP);
+}
 
-    if (can_ground_jump) {
-        p->vel.y = JUMP_VELOCITY;
-        p->grounded = false;
-        p->coyote_timer = 0.0f;
-        p->jump_buffer_timer = 0.0f;
-        p->air_jumps_left = 1;
+static bool can_ground_jump(const Player *p) {
+    return p->grounded || p->coyote_timer > 0.0f;
+}
+
+static bool can_air_jump(const Player *p) {
+    return !p->grounded && p->coyote_timer <= 0.0f && p->air_jumps_left > 0;
+}
+
+static float clamp01(float v) {
+    if (v < 0.0f)
+        return 0.0f;
+    if (v > 1.0f)
+        return 1.0f;
+    return v;
+}
+
+static float dash_charge_speed(float charge_time) {
+    if (charge_time <= 0.0f)
+        return 0.0f;
+    if (charge_time < DASH_WINDUP_TIME)
+        return DASH_SPEED_WEAK * (charge_time / DASH_WINDUP_TIME);
+
+    float span = DASH_CHARGE_MAX_TIME - DASH_WINDUP_TIME;
+    if (span <= 0.0f)
+        return DASH_SPEED_MAX;
+
+    float t = clamp01((charge_time - DASH_WINDUP_TIME) / span);
+    return DASH_SPEED_MIN + t * (DASH_SPEED_MAX - DASH_SPEED_MIN);
+}
+
+static Vector2 read_move_direction(const Player *p) {
+    Vector2 dir = { 0.0f, 0.0f };
+
+    if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))
+        dir.x -= 1.0f;
+    if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT))
+        dir.x += 1.0f;
+    if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))
+        dir.y -= 1.0f;
+    if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))
+        dir.y += 1.0f;
+
+    float len_sq = dir.x * dir.x + dir.y * dir.y;
+    if (len_sq < 0.0001f)
+        return (Vector2){ (float)p->facing, 0.0f };
+
+    float inv_len = 1.0f / sqrtf(len_sq);
+    return (Vector2){ dir.x * inv_len, dir.y * inv_len };
+}
+
+static void execute_ground_jump(Game *g) {
+    Player *p = &g->player;
+    p->vel.y = JUMP_VELOCITY_MAX;
+    p->grounded = false;
+    p->coyote_timer = 0.0f;
+    p->jump_buffer_timer = 0.0f;
+    p->air_jumps_left = g->upgrades.jump_capacity;
+    player_reset_dash_on_jump(g);
+}
+
+static void try_cut_jump_on_release(Player *p) {
+    if (jump_released() && !p->grounded && p->vel.y < 0.0f)
+        p->vel.y *= JUMP_CUT_VY_MULTIPLIER;
+}
+
+static void try_air_jump(Game *g) {
+    Player *p = &g->player;
+    if (!can_air_jump(p))
+        return;
+
+    p->vel.y = JUMP_VELOCITY_MAX;
+    p->air_jumps_left--;
+    p->jump_buffer_timer = 0.0f;
+    player_reset_dash_on_jump(g);
+}
+
+static void player_launch_dash(Game *g, float speed) {
+    Player *p = &g->player;
+
+    if (p->dashes_left <= 0) {
+        p->dash_phase = DASH_NONE;
+        g->time_scale = 1.0f;
         return;
     }
 
-    if (can_air_jump) {
-        p->vel.y = JUMP_VELOCITY;
-        p->air_jumps_left--;
-        p->jump_buffer_timer = 0.0f;
+    p->dashes_left--;
+
+    p->dash_speed = speed;
+    p->vel.x = p->dash_dir.x * speed;
+    p->vel.y = p->dash_dir.y * speed;
+    p->dash_phase = DASH_ACTIVE;
+    g->time_scale = 1.0f;
+
+    if (p->dash_dir.x < -0.01f)
+        p->facing = -1;
+    else if (p->dash_dir.x > 0.01f)
+        p->facing = 1;
+
+    if (!g->player_sprite.loaded)
+        return;
+
+    p->anim_kind = PLAYER_ANIM_DASH;
+    p->tag = LoadAsepriteTag(g->player_sprite.aseprite, "dash-right");
+    if (IsAsepriteTagValid(p->tag)) {
+        p->tag.loop = false;
+        p->tag.paused = false;
     }
+}
+
+static bool player_sprite_flip_h(const Player *p) {
+    if (player_is_dashing(p) && (p->dash_phase == DASH_ACTIVE || p->dash_phase == DASH_CHARGING))
+        return p->dash_dir.x < 0.0f;
+    return p->facing < 0;
 }
 
 static int ui_act_menu_height(const Game *g) {
@@ -486,12 +665,49 @@ static Rectangle ui_debug_button_rect(void) {
 }
 
 static Rectangle ui_map_button_rect(void) {
+    Rectangle player = ui_player_button_rect();
     return (Rectangle){
-        (float)(UI_ACT_MENU_X + UI_ACT_MENU_W + UI_MAP_BTN_GAP),
-        (float)UI_ACT_MENU_Y,
+        player.x + (float)UI_PLAYER_BTN_W + (float)UI_MAP_BTN_GAP,
+        player.y,
         (float)UI_MAP_BTN_W,
         (float)UI_MAP_BTN_H
     };
+}
+
+static Rectangle ui_player_button_rect(void) {
+    return (Rectangle){
+        (float)(UI_ACT_MENU_X + UI_ACT_MENU_W + UI_MAP_BTN_GAP),
+        (float)UI_ACT_MENU_Y,
+        (float)UI_PLAYER_BTN_W,
+        (float)UI_MAP_BTN_H
+    };
+}
+
+static int ui_player_menu_y(const Game *g) {
+    int y = UI_ACT_MENU_Y + ui_act_menu_height(g);
+    int save_h = ui_save_menu_height(g);
+    if (save_h > 0)
+        y += save_h + UI_SAVE_MENU_GAP;
+    else
+        y += UI_PLAYER_PANEL_GAP;
+    return y;
+}
+
+static int ui_player_menu_height(const Game *g) {
+    int rows = g->player_panel_open ? 4 : 1;
+    if (g->debug_mode && g->player_panel_open)
+        rows += 1;
+    return UI_ACT_MENU_PAD * 2 + rows * UI_ACT_MENU_ROW_H;
+}
+
+static bool ui_point_in_player_menu(const Game *g, Vector2 mouse) {
+    Rectangle menu = {
+        (float)UI_ACT_MENU_X,
+        (float)ui_player_menu_y(g),
+        (float)UI_ACT_MENU_W,
+        (float)ui_player_menu_height(g)
+    };
+    return CheckCollisionPointRec(mouse, menu);
 }
 
 typedef struct {
@@ -584,6 +800,63 @@ static void game_handle_ui_input(Game *g) {
         return;
     }
 
+    Rectangle player_btn = ui_player_button_rect();
+    if (CheckCollisionPointRec(mouse, player_btn)) {
+        g->player_panel_open = !g->player_panel_open;
+        g->act_menu_open = false;
+        g->save_menu_open = false;
+        return;
+    }
+
+    if (g->debug_mode && g->player_panel_open && ui_point_in_player_menu(g, mouse)) {
+        int menu_y = ui_player_menu_y(g);
+        int row = (int)((mouse.y - (float)menu_y - (float)UI_ACT_MENU_PAD) / (float)UI_ACT_MENU_ROW_H);
+        if (row == 0) {
+            g->player_panel_open = !g->player_panel_open;
+            return;
+        }
+        if (row >= 1 && row <= 3) {
+            int btn_w = 16;
+            int btn_h = 14;
+            int row_y = menu_y + UI_ACT_MENU_PAD + row * UI_ACT_MENU_ROW_H + 2;
+            int minus_x = UI_ACT_MENU_X + UI_ACT_MENU_W - UI_ACT_MENU_PAD - btn_w * 2 - 4;
+            int plus_x = minus_x + btn_w + 4;
+            Rectangle minus_btn = { (float)minus_x, (float)row_y, (float)btn_w, (float)btn_h };
+            Rectangle plus_btn = { (float)plus_x, (float)row_y, (float)btn_w, (float)btn_h };
+            int *cap = NULL;
+            if (row == 1)
+                cap = &g->upgrades.jump_capacity;
+            else if (row == 2)
+                cap = &g->upgrades.dash_capacity;
+            else
+                cap = &g->upgrades.glide_capacity;
+
+            if (CheckCollisionPointRec(mouse, minus_btn) && *cap > 0) {
+                (*cap)--;
+                player_refill_ability_pools(g);
+                return;
+            }
+            if (CheckCollisionPointRec(mouse, plus_btn) && *cap < PLAYER_UPGRADE_CAPACITY_MAX) {
+                (*cap)++;
+                player_refill_ability_pools(g);
+                return;
+            }
+        }
+        return;
+    }
+
+    if (ui_point_in_player_menu(g, mouse)) {
+        if (!g->player_panel_open)
+            g->player_panel_open = true;
+        else {
+            int menu_y = ui_player_menu_y(g);
+            int row = (int)((mouse.y - (float)menu_y - (float)UI_ACT_MENU_PAD) / (float)UI_ACT_MENU_ROW_H);
+            if (row == 0)
+                g->player_panel_open = false;
+        }
+        return;
+    }
+
     if (g->debug_mode && ui_point_in_save_menu(g, mouse)) {
         if (g->save_menu_open) {
             int row = (int)((mouse.y - (float)ui_save_menu_y(g) - (float)UI_ACT_MENU_PAD) /
@@ -610,6 +883,7 @@ static void game_handle_ui_input(Game *g) {
         g->map_open = !g->map_open;
         g->act_menu_open = false;
         g->save_menu_open = false;
+        g->player_panel_open = false;
         return;
     }
 
@@ -647,19 +921,69 @@ static void game_handle_ui_input(Game *g) {
         g->save_menu_open = false;
 }
 
+static void game_handle_escape(Game *g) {
+    if (!IsKeyPressed(KEY_ESCAPE))
+        return;
+
+    if (g->map_open) {
+        g->map_open = false;
+        return;
+    }
+    if (g->player_panel_open) {
+        g->player_panel_open = false;
+        return;
+    }
+    if (g->save_menu_open) {
+        g->save_menu_open = false;
+        return;
+    }
+    if (g->act_menu_open)
+        g->act_menu_open = false;
+}
+
 static void game_handle_input(Game *g, float dt) {
     game_handle_ui_input(g);
+    game_handle_escape(g);
 
     if (g->transition != TRANS_NONE)
         return;
 
     if (IsKeyPressed(KEY_M)) {
         g->map_open = !g->map_open;
-        if (g->map_open)
+        if (g->map_open) {
+            g->act_menu_open = false;
+            g->player_panel_open = false;
+        }
+    }
+
+    if (IsKeyPressed(KEY_P)) {
+        g->player_panel_open = !g->player_panel_open;
+        if (g->player_panel_open)
             g->act_menu_open = false;
     }
 
-    if (g->map_open)
+    if (g->debug_mode && g->player_panel_open) {
+        if (IsKeyPressed(KEY_LEFT_BRACKET))
+            player_upgrades_set(g, g->upgrades.jump_capacity - 1, g->upgrades.dash_capacity,
+                                g->upgrades.glide_capacity);
+        if (IsKeyPressed(KEY_RIGHT_BRACKET))
+            player_upgrades_set(g, g->upgrades.jump_capacity + 1, g->upgrades.dash_capacity,
+                                g->upgrades.glide_capacity);
+        if (IsKeyPressed(KEY_COMMA))
+            player_upgrades_set(g, g->upgrades.jump_capacity, g->upgrades.dash_capacity - 1,
+                                g->upgrades.glide_capacity);
+        if (IsKeyPressed(KEY_PERIOD))
+            player_upgrades_set(g, g->upgrades.jump_capacity, g->upgrades.dash_capacity + 1,
+                                g->upgrades.glide_capacity);
+        if (IsKeyPressed(KEY_MINUS))
+            player_upgrades_set(g, g->upgrades.jump_capacity, g->upgrades.dash_capacity,
+                                g->upgrades.glide_capacity - 1);
+        if (IsKeyPressed(KEY_EQUAL))
+            player_upgrades_set(g, g->upgrades.jump_capacity, g->upgrades.dash_capacity,
+                                g->upgrades.glide_capacity + 1);
+    }
+
+    if (g->map_open || g->player_panel_open)
         return;
 
     Player *p = &g->player;
@@ -668,8 +992,9 @@ static void game_handle_input(Game *g, float dt) {
         p->pos = p->spawn;
         p->vel = (Vector2){ 0.0f, 0.0f };
         p->attack_active = false;
-        p->dash_active = false;
+        player_reset_movement_abilities(p, g);
         p->gliding = false;
+        player_refill_ability_pools(g);
         game_resolve_player_overlap(g);
     }
 
@@ -684,7 +1009,7 @@ static void game_handle_input(Game *g, float dt) {
     else if (move_input > 0.0f)
         p->facing = 1;
 
-    if (IsKeyPressed(KEY_J) && !p->attack_active && !p->dash_active && g->player_sprite.loaded) {
+    if (IsKeyPressed(KEY_J) && !p->attack_active && !player_is_dashing(p) && g->player_sprite.loaded) {
         p->attack_active = true;
         p->anim_kind = PLAYER_ANIM_ATTACK;
         p->tag = LoadAsepriteTag(g->player_sprite.aseprite, "attack-1-right");
@@ -694,18 +1019,27 @@ static void game_handle_input(Game *g, float dt) {
         }
     }
 
-    if (IsKeyPressed(KEY_L) && !p->attack_active && !p->dash_active && g->player_sprite.loaded) {
-        p->dash_active = true;
-        p->anim_kind = PLAYER_ANIM_DASH;
-        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, "dash-right");
-        if (IsAsepriteTagValid(p->tag)) {
-            p->tag.loop = false;
-            p->tag.paused = false;
-        }
-        p->vel.x = (float)p->facing * DASH_SPEED;
+    if (IsKeyPressed(KEY_L) && !p->attack_active && p->dash_phase == DASH_NONE && p->dashes_left > 0 &&
+        g->player_sprite.loaded) {
+        p->dash_phase = DASH_CHARGING;
+        p->dash_charge_time = 0.0f;
+        p->dash_dir = read_move_direction(p);
+        g->time_scale = DASH_SLOWMO_SCALE;
     }
 
-    if (!p->dash_active) {
+    if (p->dash_phase == DASH_CHARGING) {
+        p->dash_dir = read_move_direction(p);
+        p->dash_charge_time += dt;
+
+        bool release = IsKeyReleased(KEY_L);
+        bool windup_done = p->dash_charge_time >= DASH_WINDUP_TIME;
+        if (release || windup_done) {
+            float speed = dash_charge_speed(p->dash_charge_time);
+            player_launch_dash(g, speed);
+        }
+    }
+
+    if (!player_is_dashing(p)) {
         float accel = p->grounded ? MOVE_SPEED : AIR_MOVE_SPEED;
         p->vel.x += move_input * accel * dt;
 
@@ -721,9 +1055,16 @@ static void game_handle_input(Game *g, float dt) {
         }
     }
 
-    if (jump_pressed()) {
-        p->jump_buffer_timer = JUMP_BUFFER_TIME;
-        try_jump(p);
+    if (!player_is_dashing(p) && !p->attack_active) {
+        if (jump_pressed()) {
+            p->jump_buffer_timer = JUMP_BUFFER_TIME;
+            if (can_ground_jump(p))
+                execute_ground_jump(g);
+            else if (can_air_jump(p))
+                try_air_jump(g);
+        }
+
+        try_cut_jump_on_release(p);
     }
 }
 
@@ -731,25 +1072,37 @@ static void game_update(Game *g, float dt) {
     game_update_transition(g, dt);
 
     bool was_grounded = g->player.grounded;
+    bool was_gliding = g->player.gliding;
 
-    if (g->transition == TRANS_NONE && !g->map_open) {
+    if (g->transition == TRANS_NONE && !g->map_open && !g->player_panel_open) {
         Player *p = &g->player;
 
-        p->gliding = IsKeyDown(KEY_K) && !p->grounded && !p->attack_active && !p->dash_active;
+        bool want_glide =
+            IsKeyDown(KEY_K) && !p->grounded && !p->attack_active && !player_is_dashing(p);
+        if (want_glide && p->glides_left <= 0 && !was_gliding)
+            want_glide = false;
+        p->gliding = want_glide;
+        if (p->gliding && !was_gliding && p->glides_left > 0)
+            p->glides_left--;
 
-        if (!p->grounded) {
+        if (p->dash_phase == DASH_CHARGING) {
+            p->vel.x = 0.0f;
+            p->vel.y = 0.0f;
+        }
+
+        if (!p->grounded && p->dash_phase != DASH_ACTIVE) {
             float grav = GRAVITY;
-            if (p->dash_active)
-                grav = DASH_GRAVITY;
-            else if (p->gliding && p->vel.y >= 0.0f)
+            if (p->gliding && p->vel.y >= 0.0f)
                 grav = GLIDE_GRAVITY;
             p->vel.y += grav * dt;
             if (p->gliding && p->vel.y > GLIDE_MAX_VY)
                 p->vel.y = GLIDE_MAX_VY;
         }
 
-        if (p->dash_active)
-            p->vel.x = (float)p->facing * DASH_SPEED;
+        if (p->dash_phase == DASH_ACTIVE) {
+            p->vel.x = p->dash_dir.x * p->dash_speed;
+            p->vel.y = p->dash_dir.y * p->dash_speed;
+        }
 
         PlayerCapsule cap;
         if (game_get_player_capsule(g, &cap)) {
@@ -769,11 +1122,13 @@ static void game_update(Game *g, float dt) {
 
         if (p->grounded) {
             p->coyote_timer = COYOTE_TIME;
-            p->air_jumps_left = 1;
+            if (!was_grounded)
+                player_refill_ability_pools(g);
             if (p->jump_buffer_timer > 0.0f)
-                try_jump(p);
+                execute_ground_jump(g);
         } else if (was_grounded) {
             p->coyote_timer = COYOTE_TIME;
+            player_refill_air_pools(g);
         } else if (p->coyote_timer > 0.0f) {
             p->coyote_timer -= dt;
             if (p->coyote_timer < 0.0f)
@@ -834,7 +1189,7 @@ static void game_draw_debug_player_sprite(const Game *g) {
     Vector2 world_feet = { g->player.pos.x, g->player.pos.y + PLAYER_HALF };
     float pl, pt, pr, pb;
     if (!player_sprite_world_collision_aabb(&g->player_sprite, g->player.tag.currentFrame,
-                                            g->player.facing < 0, world_feet.x, world_feet.y,
+                                            player_sprite_flip_h(&g->player), world_feet.x, world_feet.y,
                                             &pl, &pt, &pr, &pb))
         return;
 
@@ -853,7 +1208,9 @@ static PlayerAnimKind player_resolve_anim_kind(const Game *g) {
 
     if (p->attack_active)
         return PLAYER_ANIM_ATTACK;
-    if (p->dash_active)
+    if (p->dash_phase == DASH_CHARGING)
+        return PLAYER_ANIM_DASH_CHARGE;
+    if (p->dash_phase == DASH_ACTIVE)
         return PLAYER_ANIM_DASH;
     if (p->gliding)
         return PLAYER_ANIM_GLIDE;
@@ -885,9 +1242,35 @@ static const char *player_anim_tag_name(PlayerAnimKind kind) {
         return "gliding-right";
     case PLAYER_ANIM_DASH:
         return "dash-right";
+    case PLAYER_ANIM_DASH_CHARGE:
+        return "dash-windup-right";
     case PLAYER_ANIM_IDLE:
     default:
         return "idle-right";
+    }
+}
+
+static void player_assign_anim_tag(Game *g, PlayerAnimKind kind) {
+    Player *p = &g->player;
+    const char *name = player_anim_tag_name(kind);
+    bool dash_charge_fallback = false;
+
+    p->tag = LoadAsepriteTag(g->player_sprite.aseprite, name);
+    if (!IsAsepriteTagValid(p->tag) && kind == PLAYER_ANIM_DASH_CHARGE) {
+        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, "dash-right");
+        dash_charge_fallback = IsAsepriteTagValid(p->tag);
+    }
+
+    if (!IsAsepriteTagValid(p->tag)) {
+        TraceLog(LOG_WARNING, "PLAYER_SPRITE: missing tag \"%s\"", name);
+        return;
+    }
+
+    p->tag.loop = (kind != PLAYER_ANIM_ATTACK && kind != PLAYER_ANIM_DASH);
+    p->tag.paused = dash_charge_fallback;
+    if (kind == PLAYER_ANIM_DASH) {
+        p->tag.loop = false;
+        p->tag.paused = false;
     }
 }
 
@@ -909,29 +1292,24 @@ static void player_update_aseprite(Game *g, float dt, bool was_grounded) {
     PlayerAnimKind want = player_resolve_anim_kind(g);
     if (want != p->anim_kind) {
         p->anim_kind = want;
-        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, player_anim_tag_name(want));
-        if (!IsAsepriteTagValid(p->tag)) {
-            TraceLog(LOG_WARNING, "PLAYER_SPRITE: missing tag \"%s\"", player_anim_tag_name(want));
-            return;
-        }
-        p->tag.loop = (want != PLAYER_ANIM_ATTACK && want != PLAYER_ANIM_DASH);
-        p->tag.paused = false;
+        player_assign_anim_tag(g, want);
     }
 
     UpdateAsepriteTag(&p->tag);
 
-    if (p->dash_active && p->tag.paused) {
-        p->dash_active = false;
+    if (p->dash_phase == DASH_ACTIVE && p->tag.paused) {
+        p->dash_phase = DASH_NONE;
+        p->dash_speed = 0.0f;
         PlayerAnimKind next = player_resolve_anim_kind(g);
         p->anim_kind = next;
-        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, player_anim_tag_name(next));
+        player_assign_anim_tag(g, next);
         if (IsAsepriteTagValid(p->tag))
             p->tag.loop = true;
     } else if (p->attack_active && p->tag.paused) {
         p->attack_active = false;
         PlayerAnimKind want = player_resolve_anim_kind(g);
         p->anim_kind = want;
-        p->tag = LoadAsepriteTag(g->player_sprite.aseprite, player_anim_tag_name(want));
+        player_assign_anim_tag(g, want);
         if (IsAsepriteTagValid(p->tag))
             p->tag.loop = true;
     }
@@ -941,7 +1319,7 @@ static void player_init_sprite(Game *g) {
     g->player.facing = 1;
     g->player.anim_kind = PLAYER_ANIM_IDLE;
     g->player.attack_active = false;
-    g->player.dash_active = false;
+    player_reset_movement_abilities(&g->player, g);
     g->player.gliding = false;
     g->player.jump_in_timer = 0.0f;
     g->player.tag = (AsepriteTag){ 0 };
@@ -1154,7 +1532,7 @@ static void game_draw_world(Game *g) {
 
     if (g->player_sprite.loaded && IsAsepriteTagValid(g->player.tag)) {
         Vector2 world_feet = { g->player.pos.x, g->player.pos.y + PLAYER_HALF };
-        bool flip_h = (g->player.facing < 0);
+        bool flip_h = player_sprite_flip_h(&g->player);
         player_sprite_draw_tag(&g->player_sprite, g->player.tag, world_feet, flip_h, WHITE);
     } else {
         DrawRectangle((int)pl, (int)pt, (int)PLAYER_SIZE, (int)PLAYER_SIZE, RED);
@@ -1265,6 +1643,95 @@ static void game_draw_map_button(const Game *g) {
              (int)(btn.x + (btn.width - (float)tw) * 0.5f),
              (int)(btn.y + (btn.height - (float)UI_FONT_SIZE) * 0.5f),
              UI_FONT_SIZE, g->map_open ? LIME : RAYWHITE);
+}
+
+static void game_draw_player_button(const Game *g) {
+    Rectangle btn = ui_player_button_rect();
+    Color fill = g->player_panel_open ? (Color){ 60, 90, 140, 230 } : (Color){ 40, 40, 50, 220 };
+    DrawRectangleRec(btn, fill);
+    DrawRectangleLinesEx(btn, 1.0f, g->player_panel_open ? SKYBLUE : RAYWHITE);
+    const char *label = "PLAYER";
+    int tw = MeasureText(label, UI_FONT_SIZE);
+    DrawText(label,
+             (int)(btn.x + (btn.width - (float)tw) * 0.5f),
+             (int)(btn.y + (btn.height - (float)UI_FONT_SIZE) * 0.5f),
+             UI_FONT_SIZE, g->player_panel_open ? SKYBLUE : RAYWHITE);
+}
+
+static void game_draw_player_panel(const Game *g) {
+    int menu_y = ui_player_menu_y(g);
+    int menu_h = ui_player_menu_height(g);
+    const Player *p = &g->player;
+
+    Rectangle menu_bg = {
+        (float)UI_ACT_MENU_X,
+        (float)menu_y,
+        (float)UI_ACT_MENU_W,
+        (float)menu_h
+    };
+    DrawRectangleRec(menu_bg, (Color){ 20, 20, 30, 220 });
+    DrawRectangleLinesEx(menu_bg, 1.0f, SKYBLUE);
+
+    const char *header = g->player_panel_open ? "Player v" : "Player >";
+    DrawText(header,
+             UI_ACT_MENU_X + UI_ACT_MENU_PAD,
+             menu_y + UI_ACT_MENU_PAD,
+             UI_FONT_SIZE, SKYBLUE);
+
+    if (!g->player_panel_open)
+        return;
+
+    const char *jump_line;
+    const char *dash_line;
+    const char *glide_line;
+    char jump_buf[64];
+    char dash_buf[64];
+    char glide_buf[64];
+
+    if (!p->grounded) {
+        snprintf(jump_buf, sizeof(jump_buf), "Jumps: %d (%d left)",
+                 g->upgrades.jump_capacity, p->air_jumps_left);
+        snprintf(dash_buf, sizeof(dash_buf), "Dashes: %d (%d left)",
+                 g->upgrades.dash_capacity, p->dashes_left);
+        snprintf(glide_buf, sizeof(glide_buf), "Glides: %d (%d left)",
+                 g->upgrades.glide_capacity, p->glides_left);
+    } else {
+        snprintf(jump_buf, sizeof(jump_buf), "Jumps: %d", g->upgrades.jump_capacity);
+        snprintf(dash_buf, sizeof(dash_buf), "Dashes: %d", g->upgrades.dash_capacity);
+        snprintf(glide_buf, sizeof(glide_buf), "Glides: %d", g->upgrades.glide_capacity);
+    }
+    jump_line = jump_buf;
+    dash_line = dash_buf;
+    glide_line = glide_buf;
+
+    const char *lines[3] = { jump_line, dash_line, glide_line };
+    for (int i = 0; i < 3; i++) {
+        int row_y = menu_y + UI_ACT_MENU_PAD + (i + 1) * UI_ACT_MENU_ROW_H;
+        DrawText(lines[i],
+                 UI_ACT_MENU_X + UI_ACT_MENU_PAD,
+                 row_y,
+                 UI_FONT_SIZE, LIGHTGRAY);
+
+        if (g->debug_mode) {
+            int btn_w = 16;
+            int btn_h = 14;
+            int minus_x = UI_ACT_MENU_X + UI_ACT_MENU_W - UI_ACT_MENU_PAD - btn_w * 2 - 4;
+            int plus_x = minus_x + btn_w + 4;
+            int row_btn_y = row_y + 2;
+            DrawRectangle(minus_x, row_btn_y, btn_w, btn_h, (Color){ 50, 50, 60, 255 });
+            DrawRectangle(plus_x, row_btn_y, btn_w, btn_h, (Color){ 50, 50, 60, 255 });
+            DrawText("-", minus_x + 5, row_btn_y, 12, RAYWHITE);
+            DrawText("+", plus_x + 3, row_btn_y, 12, RAYWHITE);
+        }
+    }
+
+    if (g->debug_mode) {
+        int hint_y = menu_y + UI_ACT_MENU_PAD + 4 * UI_ACT_MENU_ROW_H;
+        DrawText("[ ] jump  , . dash  - = glide",
+                 UI_ACT_MENU_X + UI_ACT_MENU_PAD,
+                 hint_y,
+                 10, DARKGRAY);
+    }
 }
 
 static void game_draw_map(const Game *g) {
@@ -1390,20 +1857,38 @@ static void game_draw(Game *g) {
 
     game_draw_act_menu(g);
     game_draw_save_menu(g);
+    game_draw_player_panel(g);
 
     if (g->map_open)
         game_draw_map(g);
 
+    game_draw_player_button(g);
     game_draw_map_button(g);
     game_draw_debug_button(g);
 
-    DrawText("A/D: move | Space: jump | K: glide | J: attack | L: dash | R: respawn | M: map",
+    const char *fps = TextFormat("%d FPS", GetFPS());
+    int fps_w = MeasureText(fps, 12);
+    DrawText(fps, GetScreenWidth() - fps_w - 10, GetScreenHeight() - 38, 12, DARKGRAY);
+
+    DrawText("A/D: move | Space: jump | K: glide | J: attack | Hold L: dash | P: player | Esc: close",
              10, GetScreenHeight() - 22, 12, DARKGRAY);
+    DrawText("R: respawn | M: map",
+             10, GetScreenHeight() - 10, 12, DARKGRAY);
     if (g->debug_mode) {
         const char *legend = g->map_open
             ? "Debug map: green=collision | orange/yellow=saves | black=tunnel/teleport spawn"
             : "Debug: green=body | orange/yellow=saves | Spawn menu below acts";
         DrawText(legend, 10, GetScreenHeight() - 38, 12, (Color){ 120, 200, 120, 255 });
+
+        if (g->player.dash_phase == DASH_CHARGING) {
+            float charge = clamp01(g->player.dash_charge_time / DASH_CHARGE_MAX_TIME);
+            int bar_w = 80;
+            int bar_x = 10;
+            int bar_y = GetScreenHeight() - 56;
+            DrawRectangle(bar_x, bar_y, bar_w, 8, (Color){ 40, 40, 40, 255 });
+            DrawRectangle(bar_x, bar_y, (int)(bar_w * charge), 8, SKYBLUE);
+            DrawText("dash charge", bar_x, bar_y - 14, 10, SKYBLUE);
+        }
     }
     EndDrawing();
 }
@@ -1429,8 +1914,11 @@ bool game_new(Game **out) {
     g->act_menu_open = false;
     g->save_menu_open = false;
     g->map_open = false;
+    g->player_panel_open = false;
     g->debug_mode = false;
     g->debug_save_index = 0;
+    g->time_scale = 1.0f;
+    player_upgrades_init_defaults(&g->upgrades);
 
     if (!game_load_act(g, default_act)) {
         free(g);
@@ -1463,6 +1951,17 @@ void game_free(Game **game) {
     *game = NULL;
 }
 
+static bool game_quit_requested(void) {
+#if defined(__APPLE__) && defined(__MACH__)
+    if ((IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER)) && IsKeyPressed(KEY_Q))
+        return true;
+#else
+    if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_Q))
+        return true;
+#endif
+    return false;
+}
+
 bool game_run(Game *game) {
     if (!game)
         return false;
@@ -1472,9 +1971,14 @@ bool game_run(Game *game) {
         if (dt > 0.05f)
             dt = 0.05f;
 
+        if (game_quit_requested())
+            game->running = false;
+
+        float scaled_dt = dt * game->time_scale;
+
         display_handle_input();
         game_handle_input(game, dt);
-        game_update(game, dt);
+        game_update(game, scaled_dt);
         game_draw_world(game);
         game_draw(game);
     }
