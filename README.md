@@ -100,3 +100,8 @@ Cross-platform builds are in `.github/workflows/cathuluvania-cicd.yml` (web, mac
 
 - `external/raylib-master/` — raylib 6.0 sources (`make vendor-raylib` or any build target)
 - `scripts/vendor_raylib.sh` — clone/pin raylib 6.0 into `external/`
+
+## GitHub Actions secrets
+
+- BUTLER_API_KEY: Itch Butler API Key
+- AWS_PUBLIC_SOFTWARE_ROLE_ARN: OIDC - `arn:aws:iam::131924965867:role/fullstack-cicd-ga-prod`
