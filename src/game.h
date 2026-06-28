@@ -16,24 +16,43 @@ typedef enum {
     PLAYER_ANIM_ATTACK,
     PLAYER_ANIM_GLIDE,
     PLAYER_ANIM_DASH,
+    PLAYER_ANIM_DASH_CHARGE,
 } PlayerAnimKind;
+
+typedef enum {
+    DASH_NONE = 0,
+    DASH_CHARGING,
+    DASH_ACTIVE,
+} DashPhase;
+
+typedef struct PlayerUpgrades {
+    int jump_capacity;
+    int dash_capacity;
+    int glide_capacity;
+} PlayerUpgrades;
 
 typedef struct Player {
     Vector2 pos;
     Vector2 vel;
     Vector2 spawn;
+    Vector2 dash_dir;
     bool grounded;
     bool on_wall_left;
     bool on_wall_right;
     float coyote_timer;
     float jump_buffer_timer;
     int air_jumps_left;
+    int dashes_left;
+    int glides_left;
     int facing;
     PlayerAnimKind anim_kind;
     AsepriteTag tag;
     bool attack_active;
-    bool dash_active;
+    DashPhase dash_phase;
+    float dash_charge_time;
+    float dash_speed;
     bool gliding;
+    bool glide_active;
     float jump_in_timer;
 } Player;
 
@@ -67,8 +86,10 @@ typedef struct Game {
     bool act_menu_open;
     bool save_menu_open;
     bool map_open;
+    bool player_panel_open;
     bool debug_mode;
     int debug_save_index;
+    PlayerUpgrades upgrades;
     TransitionPhase transition;
     float transition_alpha;
     float player_pan_from_x;
@@ -83,6 +104,7 @@ typedef struct Game {
     const TeleportDef *pending_to_teleport;
     const TunnelDef *trigger_overlap_tunnel;
     const TeleportDef *trigger_overlap_teleport;
+    float time_scale;
 } Game;
 
 bool game_new(Game **out);

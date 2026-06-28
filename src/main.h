@@ -25,13 +25,25 @@
 #define MOVE_SPEED 480.0f
 #define AIR_MOVE_SPEED 320.0f
 #define MAX_RUN_SPEED 120.0f
-#define JUMP_VELOCITY -396.0f  /* sqrt(2) * 280 — doubles max jump height vs -280 */
+#define JUMP_VELOCITY_MAX -396.0f  /* sqrt(2) * 280 — doubles max jump height vs -280 */
+#define JUMP_CUT_VY_MULTIPLIER 0.45f  /* applied once on jump release while rising */
+
 #define WALL_SLIDE_MAX_VY 45.0f
 #define GLIDE_GRAVITY 350.0f
 #define GLIDE_MAX_VY 55.0f
 
-#define DASH_SPEED 520.0f
+#define DASH_WINDUP_TIME 0.4f
+#define DASH_CHARGE_MAX_TIME 0.8f
+#define DASH_SPEED_WEAK 120.0f
+#define DASH_SPEED_MIN 280.0f
+#define DASH_SPEED_MAX 520.0f
+#define DASH_SLOWMO_SCALE 0.25f
 #define DASH_GRAVITY 200.0f
+
+#define PLAYER_JUMP_CAPACITY_DEFAULT  1
+#define PLAYER_DASH_CAPACITY_DEFAULT  1
+#define PLAYER_GLIDE_CAPACITY_DEFAULT 1
+#define PLAYER_UPGRADE_CAPACITY_MAX   9
 
 #define COYOTE_TIME 0.12f
 #define JUMP_BUFFER_TIME 0.12f

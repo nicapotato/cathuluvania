@@ -87,7 +87,7 @@ static const TeleportDef ACT_green_act_TELEPORTS[5] = {
 };
 
 static const SavePointDef ACT_dark_act_SAVES[6] = {
-    { .index = 0, .x = 841.0f, .y = 841.0f, .room_id = "r-9" },
+    { .index = 0, .x = 133.0f, .y = 336.0f, .room_id = "r-1" },
     { .index = 1, .x = 1159.0f, .y = 197.0f, .room_id = "r-2" },
     { .index = 2, .x = 2143.0f, .y = 64.0f, .room_id = "r-3" },
     { .index = 3, .x = 2303.0f, .y = 1063.0f, .room_id = "r-7" },
@@ -106,7 +106,7 @@ static const RoomDef ACT_dark_act_ROOMS[11] = {
     { .id = "r-6", .name = NULL, .isolated = false, .x = 2560.0f, .y = 655.0f, .w = 151.0f, .h = 404.0f, .view_y = 655.0f, .view_h = 404.0f },
     { .id = "r-7", .name = NULL, .isolated = false, .x = 2238.0f, .y = 917.0f, .w = 160.0f, .h = 284.0f, .view_y = 917.0f, .view_h = 284.0f },
     { .id = "r-8", .name = NULL, .isolated = false, .x = 1216.0f, .y = 512.0f, .w = 691.0f, .h = 694.0f, .view_y = 512.0f, .view_h = 694.0f },
-    { .id = "r-9", .name = NULL, .isolated = false, .x = 429.0f, .y = 415.0f, .w = 725.0f, .h = 626.0f, .view_y = 415.0f, .view_h = 626.0f }
+    { .id = "r-9", .name = NULL, .isolated = false, .x = 428.0f, .y = 414.0f, .w = 725.0f, .h = 626.0f, .view_y = 414.0f, .view_h = 626.0f }
 };
 
 static const TunnelDef ACT_dark_act_TUNNELS[8] = {
@@ -117,7 +117,7 @@ static const TunnelDef ACT_dark_act_TUNNELS[8] = {
     { .id = "door-6", .room_a_id = "r-5", .room_b_id = "r-6", .x = 2382.0f, .y = 657.0f, .w = 198.0f, .h = 47.0f, .spawn_ax = 2391.0f, .spawn_ay = 696.0f, .spawn_bx = 2570.0f, .spawn_by = 696.0f },
     { .id = "door-7", .room_a_id = "r-6", .room_b_id = "r-7", .x = 2382.0f, .y = 976.0f, .w = 196.0f, .h = 49.0f, .spawn_ax = 2569.0f, .spawn_ay = 1017.0f, .spawn_bx = 2390.0f, .spawn_by = 1017.0f },
     { .id = "door-8", .room_a_id = "r-7", .room_b_id = "r-8", .x = 1872.0f, .y = 1103.0f, .w = 384.0f, .h = 50.0f, .spawn_ax = 2247.0f, .spawn_ay = 1145.0f, .spawn_bx = 1889.5f, .spawn_by = 1145.0f },
-    { .id = "door-9", .room_a_id = "r-8", .room_b_id = "r-9", .x = 1088.0f, .y = 544.0f, .w = 160.0f, .h = 48.0f, .spawn_ax = 1232.0f, .spawn_ay = 584.0f, .spawn_bx = 1121.0f, .spawn_by = 584.0f }
+    { .id = "door-9", .room_a_id = "r-8", .room_b_id = "r-9", .x = 1088.0f, .y = 544.0f, .w = 160.0f, .h = 48.0f, .spawn_ax = 1232.0f, .spawn_ay = 584.0f, .spawn_bx = 1120.5f, .spawn_by = 584.0f }
 };
 
 static const TeleportDef ACT_dark_act_TELEPORTS[5] = {

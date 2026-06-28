@@ -115,7 +115,7 @@ vendor-raylib:
 	@./scripts/vendor_raylib.sh
 
 $(RAYLIB_LIB): vendor-raylib
-	@rm -f $(RAYLIB_SRC)/libraylib.a $(RAYLIB_SRC)/libraylib.*.dylib $(RAYLIB_SRC)/libraylib.dylib
+	@rm -f $(RAYLIB_SRC)/libraylib.a $(RAYLIB_SRC)/libraylib.*.dylib $(RAYLIB_SRC)/libraylib.dylib $(RAYLIB_SRC)/*.o
 	@$(RAYLIB_MAKE) -C $(RAYLIB_SRC) PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC -j4
 
 CFLAGS += -std=c99 -Wall -I$(SRC_DIR) -Iinclude $(CFLAGS_EXTRA)
